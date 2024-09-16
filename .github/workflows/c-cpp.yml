@@ -23,5 +23,7 @@ jobs:
       run: pip install Pillow
     - name: Install Python numpy
       run: pip install numpy
+    - name: lfs
+      run: git lfs pull      
     - name: launch mnist
       run: cd gxnet; sh launch_mnist.sh
