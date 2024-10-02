@@ -13,8 +13,6 @@ public:
 
 	virtual ~Optim();
 
-	void setDebug( bool isDebug );
-
 	int getType() const;
 
 	virtual void update( DataVector * weights, const DataVector & gradients,
@@ -28,7 +26,6 @@ public:
 	static Optim * SGD( DataType lr, DataType lambda );
 
 protected:
-	bool mIsDebug;
 	int mType;
 };
 

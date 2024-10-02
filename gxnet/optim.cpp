@@ -8,16 +8,10 @@ namespace gxnet {
 Optim :: Optim( int type )
 {
 	mType = type;
-	mIsDebug = false;
 }
 
 Optim :: ~Optim()
 {
-}
-
-void Optim :: setDebug( bool isDebug )
-{
-	mIsDebug = isDebug;
 }
 
 int Optim :: getType() const
@@ -58,7 +52,7 @@ void SGD :: update( DataVector * weights, const DataVector & gradients,
 {
 	DataVector tmpGrad = gradients;
 
-	if( mIsDebug ) {
+	if( gx_is_inner_debug ) {
 		gx_vs_product( tmpGrad, mLR, &tmpGrad );
 	} else {
 		gx_vs_product( *weights, ( 1.0 - mLR * mLambda / trainingCount ), weights );

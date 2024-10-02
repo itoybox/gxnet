@@ -68,10 +68,9 @@ bool loadData( const char * filename, DataMatrix * data, std::set< int > * label
 	return true;
 }
 
-template< typename NetworkType >
-void check( const char * tag, NetworkType & network, DataMatrix & input, DataMatrix & target, bool isDebug )
+void check( const char * tag, Network & network, DataMatrix & input, DataMatrix & target )
 {
-	if( isDebug ) network.print();
+	if( gx_is_inner_debug ) network.print();
 
 	int correct = 0;
 
@@ -84,11 +83,11 @@ void check( const char * tag, NetworkType & network, DataMatrix & input, DataMat
 		int outputType = Utils::max_index( std::begin( output ), std::end( output ) );
 		int targetType = Utils::max_index( std::begin( target[ i ] ), std::end( target[ i ] ) );
 
-		if( isDebug ) printf( "forward %d, index %zu, %d %d\n", ret, i, outputType, targetType );
-
 		if( outputType == targetType ) correct++;
 
-		for( size_t j = 0; isDebug && j < output.size(); j++ ) {
+		if( gx_is_inner_debug ) printf( "forward %d, index %zu, %d %d\n", ret, i, outputType, targetType );
+
+		for( size_t j = 0; gx_is_inner_debug && j < output.size(); j++ ) {
 			printf( "\t%zu %.8f %.8f\n", j, output[ j ], target[ i ][ j ] );
 		}
 	}
@@ -108,6 +107,8 @@ void splitData( const CmdArgs_t & args, const DataMatrix & data, const std::set<
 
 	for( int i = args.mEvalCount; i > 0; i-- ) {
 		int n = std::rand() % idxOfData.size();
+
+		if( gx_is_inner_debug ) n = i - 1;
 
 		const DataVector & item = data[ idxOfData[ n ] ];
 
@@ -133,6 +134,8 @@ void splitData( const CmdArgs_t & args, const DataMatrix & data, const std::set<
 		target->emplace_back( DataVector() );
 		target->back().resize( mapOflabels.size(), 0 );
 		target->back()[ mapOflabels[ item[ item.size() - 1 ] ] ] = 1;
+
+		if( args.mTrainingCount > 0 && (int)input->size() >= args.mTrainingCount ) break;
 	}
 }
 
@@ -155,7 +158,6 @@ void test( const CmdArgs_t & args )
 	{
 		Network network;
 
-		network.setShuffle( args.mIsShuffle );
 		network.setLossFuncType( Network::eCrossEntropy );
 
 		BaseLayer * layer = NULL;
@@ -168,9 +170,9 @@ void test( const CmdArgs_t & args )
 		layer->setActFunc( ActFunc::softmax() );
 		network.addLayer( layer );
 
-		check( "before train", network, input4eval, target4eval, args.mIsDebug );
+		check( "before train", network, input4eval, target4eval );
 
-		network.print();
+		network.print( true );
 
 		bool ret = network.train( input, target, args );
 
@@ -178,7 +180,7 @@ void test( const CmdArgs_t & args )
 
 		printf( "train %s\n", ret ? "succ" : "fail" );
 
-		check( "after train", network, input4eval, target4eval, args.mIsDebug );
+		check( "after train", network, input4eval, target4eval );
 	}
 
 	{
@@ -188,7 +190,7 @@ void test( const CmdArgs_t & args )
 
 		network.print();
 
-		check( "load model", network, input4eval, target4eval, args.mIsDebug );
+		check( "load model", network, input4eval, target4eval );
 	}
 }
 
@@ -200,7 +202,6 @@ int main( const int argc, char * argv[] )
 		.mEpochCount = 10,
 		.mMiniBatchCount = 2,
 		.mLearningRate = 0.1,
-		.mIsDebug = false,
 		.mIsShuffle = true,
 	};
 

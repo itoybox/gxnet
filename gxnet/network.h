@@ -62,11 +62,7 @@ public:
 
 	void setOnEpochEnd( OnEpochEnd_t onEpochEnd );
 
-	void setDebug( bool isDebug );
-
 	void setTraining( bool isTraining );
-
-	void setShuffle( bool isShuffle );
 
 	void setLossFuncType( int lossFuncType );
 
@@ -108,7 +104,7 @@ private:
 	OnEpochEnd_t mOnEpochEnd;
 	int mLossFuncType;
 	BaseLayerPtrVector mLayers;
-	bool mIsDebug, mIsShuffle, mIsTraining;
+	bool mIsTraining;
 };
 
 

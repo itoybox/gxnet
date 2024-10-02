@@ -104,9 +104,6 @@ void testNetwork()
 
 	Network network( Network::eMeanSquaredError );
 	{
-		network.setDebug( true );
-		network.setShuffle( false );
-
 		FullConnLayer * layer = NULL;
 
 		layer = new FullConnLayer( { 2 }, 2 );
@@ -128,7 +125,8 @@ void testNetwork()
 		.mEpochCount = 1,
 		.mMiniBatchCount = 2,
 		.mLearningRate = learningRate,
-		.mLambda = 0
+		.mLambda = 0,
+		.mIsShuffle = false
 	};
 
 	network.train( input, target, args );
@@ -140,6 +138,8 @@ void testNetwork()
 
 int main()
 {
+	gx_is_inner_debug = true;
+
 	testNetwork();
 
 	return 0;

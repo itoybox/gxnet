@@ -66,14 +66,11 @@ public:
 
 	const ActFunc * getActFunc() const;
 
-	void setDebug( bool isDebug );
-
 	void setTraining( bool isTraining );
 
 protected:
 	Dims mInputDims, mOutputDims;
 	int mType;
-	bool mIsDebug;
 	bool mIsTraining;
 
 	ActFunc * mActFunc;

@@ -332,8 +332,8 @@ void Utils :: printMDSpan( const char * tag, const MDSpanRO & data, bool useSciF
 
 	std::copy( data.dims().rbegin(), data.dims().rend(), dims.rbegin() );
 
-	printf( "{{{\n\n" );
-	printf( "%s dims %zu { %zu, %zu, %zu, %zu }\n\n", tag, data.dims().size(), dims[ 0 ], dims[ 1 ], dims[ 2 ], dims[ 3 ] );
+	printf( "{{{\n" );
+	printf( "%s dims %zu { %s }\n", tag, data.dims().size(), gx_vector2string( data.dims() ).c_str() );
 
 	for( size_t f = 0; f < dims[ 0 ]; f++ ) {
 		if( dims[ 0 ] > 1 ) printf( "%s#%zu\n", tag, f );
@@ -524,7 +524,7 @@ void Utils :: getCmdArgs( int argc, char * const argv[],
 				args->mIsShuffle = 0 == atoi( optarg ) ? false : true;
 				break;
 			case 9:
-				args->mIsDebug = true;
+				gx_is_inner_debug = true;
 				break;
 			case 10:
 				args->mThreadCount = atoi( optarg );
@@ -552,7 +552,7 @@ void Utils :: getCmdArgs( int argc, char * const argv[],
 	printf( "\ttrainingCount %d, evalCount %d\n", args->mTrainingCount, args->mEvalCount );
 	printf( "\tepochCount %d, miniBatchCount %d, learningRate %f, lambda %f\n",
 		args->mEpochCount, args->mMiniBatchCount, args->mLearningRate, args->mLambda );
-	printf( "\tshuffle %s, debug %s\n", args->mIsShuffle ? "true" : "false", args->mIsDebug ? "true" : "false" );
+	printf( "\tshuffle %s, debug %s\n", args->mIsShuffle ? "true" : "false", gx_is_inner_debug ? "true" : "false" );
 	printf( "\tmodelPath %s\n", NULL == args->mModelPath ? "NULL" : args->mModelPath );
 	printf( "\tthreadCount %d, hardware_concurrency: %u\n", args->mThreadCount, std::thread::hardware_concurrency() );
 	printf( "\tsimd::size %zu\n", DataSimd::size() );

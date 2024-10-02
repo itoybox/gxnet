@@ -105,8 +105,6 @@ Network :: Network( int lossFuncType )
 {
 	mOnEpochEnd = NULL;
 	mLossFuncType = lossFuncType;
-	mIsDebug = false;
-	mIsShuffle = true;
 	mIsTraining = false;
 }
 
@@ -133,23 +131,11 @@ void Network :: setOnEpochEnd( OnEpochEnd_t onEpochEnd )
 	mOnEpochEnd = onEpochEnd;
 }
 
-void Network :: setDebug( bool isDebug )
-{
-	mIsDebug = isDebug;
-
-	for( auto & layer : mLayers ) layer->setDebug( isDebug );
-}
-
 void Network :: setTraining( bool isTraining )
 {
 	mIsTraining = isTraining;
 
 	for( auto & layer : mLayers ) layer->setTraining( isTraining );
-}
-
-void Network :: setShuffle( bool isShuffle )
-{
-	mIsShuffle = isShuffle;
 }
 
 void Network :: setLossFuncType( int lossFuncType )
@@ -174,7 +160,6 @@ const BaseLayerPtrVector & Network :: getLayers() const
 
 void Network :: addLayer( BaseLayer * layer )
 {
-	layer->setDebug( mIsDebug );
 	layer->setTraining( mIsTraining );
 
 	mLayers.emplace_back( layer );
@@ -233,8 +218,8 @@ void Network :: collect( NetworkCtx * ctx ) const
 		layer->collectGradients( ctx->getLayerCtx( i ) );
 	}
 
-	if( mIsDebug ) {
-		Utils::printVector( "input", ctx->getLayerCtx( 0 )->getForwardCtx().getInput() );
+	if( gx_is_inner_debug ) {
+
 		Utils::printCtx( "collect", ctx->getLayerCtx() );
 	}
 }
@@ -307,6 +292,11 @@ bool Network :: trainMiniBatch( NetworkCtx * ctx, DataType * totalLoss )
 
 		ctx->getLayerCtx( 0 )->getForwardCtx().setInput( &currInput );
 
+		if( gx_is_inner_debug ) {
+			Utils::printVector( "input", currInput );
+			Utils::printVector( "target", currTarget );
+		}
+
 		forward( ctx );
 
 		backward( ctx, currTarget );
@@ -319,7 +309,7 @@ bool Network :: trainMiniBatch( NetworkCtx * ctx, DataType * totalLoss )
 
 		*totalLoss += loss;
 
-		if( mIsDebug )  printf( "DEBUG: input #%ld loss %.8f totalLoss %.8f\n", i, loss, *totalLoss );
+		if( gx_is_inner_debug )  printf( "DEBUG: input #%ld loss %.8f totalLoss %.8f\n", i, loss, *totalLoss );
 	}
 
 	return true;
@@ -350,7 +340,6 @@ bool Network :: trainInternal( const DataMatrix & input, const DataMatrix & targ
 	ctx.setTrainingData( &input, &target );
 
 	std::unique_ptr< Optim > optim( Optim::SGD( args.mLearningRate, args.mLambda ) );
-	optim->setDebug( mIsDebug );
 
 	if( NULL != losses ) losses->resize( args.mEpochCount, 0 );
 
@@ -358,7 +347,7 @@ bool Network :: trainInternal( const DataMatrix & input, const DataMatrix & targ
 
 		IntVector idxOfData( input.size() );
 		std::iota( idxOfData.begin(), idxOfData.end(), 0 );
-		if( mIsShuffle ) std::shuffle( idxOfData.begin(), idxOfData.end(), gen );
+		if( args.mIsShuffle ) std::shuffle( idxOfData.begin(), idxOfData.end(), gen );
 
 		DataType totalLoss = 0;
 
@@ -373,11 +362,11 @@ bool Network :: trainInternal( const DataMatrix & input, const DataMatrix & targ
 
 			trainMiniBatch( &ctx, &totalLoss );
 
-			if( mIsDebug ) {
-				Utils::printCtx( "batch", ctx.getBatchCtx() );
-			}
+			if( gx_is_inner_debug ) Utils::printCtx( "batch", ctx.getBatchCtx() );
 
 			apply( &ctx, optim.get(), input.size(), end - begin );
+
+			if( gx_is_inner_debug ) print( true );
 
 			if( progressInterval > 0 && 0 == ( begin % ( progressInterval * miniBatchCount ) ) ) {
 				printf( "\r%zu / %zu, loss %.8f", end, idxOfData.size(), totalLoss / end );
@@ -396,8 +385,6 @@ bool Network :: trainInternal( const DataMatrix & input, const DataMatrix & targ
 				ctime( &currTime ), currTime - beginTime, n, args.mLearningRate, totalLoss / input.size() );
 			beginTime = time( NULL );
 		}
-
-		if( mIsDebug ) print();
 
 		if( mOnEpochEnd ) mOnEpochEnd( *this, n, totalLoss / input.size() );
 	}

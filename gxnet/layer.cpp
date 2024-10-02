@@ -14,7 +14,6 @@ namespace gxnet {
 
 BaseLayer :: BaseLayer( int type )
 {
-	mIsDebug = false;
 	mType = type;
 	mActFunc = NULL;
 
@@ -33,7 +32,13 @@ void BaseLayer :: forward( BaseLayerCtx * ctx ) const
 	ForwardCtx & fwdCtx = ctx->getForwardCtx();
 
 	calcOutput( ctx );
-	if( NULL != mActFunc ) mActFunc->activate( fwdCtx.getOutput(), &( fwdCtx.getOutput() ) );
+	if( NULL != mActFunc ) {
+		if( gx_is_inner_debug ) Utils::printVector( "before.act", fwdCtx.getOutput() );
+
+		mActFunc->activate( fwdCtx.getOutput(), &( fwdCtx.getOutput() ) );
+
+		if( gx_is_inner_debug ) Utils::printVector( "after.act", fwdCtx.getOutput() );
+	}
 }
 
 void BaseLayer :: backward( BaseLayerCtx * ctx, DataVector * inDelta ) const
@@ -92,11 +97,6 @@ const ActFunc * BaseLayer :: getActFunc() const
 	return mActFunc;
 }
 
-void BaseLayer :: setDebug( bool isDebug )
-{
-	mIsDebug = isDebug;
-}
-
 void BaseLayer :: setTraining( bool isTraining )
 {
 	mIsTraining = isTraining;
@@ -131,11 +131,11 @@ FullConnLayer :: FullConnLayer( const Dims & inputDims, size_t neuronCount )
 	mWeights.resize( neuronCount );
 	for( auto & neuron : mWeights ) {
 		neuron.resize( gx_dims_flatten_size( inputDims ) );
-		for( auto & w : neuron ) w = Utils::random();
+		for( auto & w : neuron ) w = gx_is_inner_debug ? 0.5 : Utils::random();
 	}
 
 	mBiases.resize( neuronCount );
-	for( auto & b : mBiases ) b = Utils::random();
+	for( auto & b : mBiases ) b = gx_is_inner_debug ? 0.5 : Utils::random();
 
 	mInputDims = inputDims;
 	mOutputDims = { neuronCount };
@@ -187,7 +187,12 @@ void FullConnLayer :: calcOutput( BaseLayerCtx * ctx ) const
 	for( size_t i = 0; i < mWeights.size(); i++ ) {
 		//( *output )[ i ]  = ( mWeights[ i ] * input ).sum();
 		fwdCtx.getOutput()[ i ]  = gx_inner_product( mWeights[ i ], fwdCtx.getInput() );
-		if( ! mIsDebug )  fwdCtx.getOutput()[ i ] += mBiases[ i ];
+		if( ! gx_is_inner_debug )  fwdCtx.getOutput()[ i ] += mBiases[ i ];
+	}
+
+	if( gx_is_inner_debug ) {
+		Utils::printVector( "input", fwdCtx.getInput() );
+		Utils::printVector( "output", fwdCtx.getOutput() );
 	}
 }
 
@@ -237,7 +242,7 @@ void FullConnLayer :: applyGradients( BackwardCtx * ctx, Optim * optim,
 		optim->update( &( mWeights[ n ] ), ctx->getGradients()[ n ], trainingCount, miniBatchCount );
 	}
 
-	if( !mIsDebug ) optim->updateBiases( &mBiases, ctx->getDelta(), miniBatchCount );
+	if( ! gx_is_inner_debug ) optim->updateBiases( &mBiases, ctx->getDelta(), miniBatchCount );
 }
 
 }; // namespace gxnet;

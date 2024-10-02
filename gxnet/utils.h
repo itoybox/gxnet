@@ -15,7 +15,6 @@ typedef struct tagCmdArgs {
 	int mMiniBatchCount;
 	DataType mLearningRate;
 	DataType mLambda;
-	bool mIsDebug;
 	bool mIsShuffle;
 	const char * mModelPath;
 } CmdArgs_t;

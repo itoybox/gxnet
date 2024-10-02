@@ -3,6 +3,8 @@
 
 namespace gxnet {
 
+bool gx_is_inner_debug = false;
+
 stdx::element_aligned_tag Aligned = stdx::element_aligned;
 
 DataType gx_inner_product( const DataVector & a, const DataVector & b )

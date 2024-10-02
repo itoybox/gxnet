@@ -15,6 +15,8 @@
 
 namespace gxnet {
 
+extern bool gx_is_inner_debug;
+
 namespace stdx = std::experimental::parallelism_v2;
 
 typedef double DataType;

@@ -7,7 +7,7 @@ namespace gxnet {
 
 class Network;
 
-void gx_eval( const char * tag, Network & network, DataMatrix & input, DataMatrix & target, bool isDebug );
+void gx_eval( const char * tag, Network & network, DataMatrix & input, DataMatrix & target );
 
 
 }; // namespace gxnet;

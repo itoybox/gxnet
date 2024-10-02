@@ -22,29 +22,31 @@ bool loadData( const CmdArgs_t & args, DataMatrix * input, DataMatrix * target,
 		return false;
 	}
 
-	// load rotated images
-	path = "mnist/train-images-idx3-ubyte.rot";
-	if( 0 == access( path, F_OK ) ) {
-		if( ! Utils::loadMnistImages( args.mTrainingCount, path, input ) ) {
-			printf( "read %s fail\n", path );
-			return false;
+	if( ! gx_is_inner_debug ) {
+		// load rotated images
+		path = "mnist/train-images-idx3-ubyte.rot";
+		if( 0 == access( path, F_OK ) ) {
+			if( ! Utils::loadMnistImages( args.mTrainingCount, path, input ) ) {
+				printf( "read %s fail\n", path );
+				return false;
+			}
+
+			path = "mnist/train-labels-idx1-ubyte.rot";
+			if( ! Utils::loadMnistLabels( args.mTrainingCount, path, target ) ) {
+				printf( "read %s fail\n", path );
+				return false;
+			}
 		}
 
-		path = "mnist/train-labels-idx1-ubyte.rot";
-		if( ! Utils::loadMnistLabels( args.mTrainingCount, path, target ) ) {
-			printf( "read %s fail\n", path );
-			return false;
-		}
-	}
+		// center mnist images
+		size_t orgSize = input->size();
 
-	// center mnist images
-	size_t orgSize = input->size();
-
-	for( size_t i = 0; i < orgSize; i++ ) {
-		DataVector newImage;
-		if( Utils::centerMnistImage( ( *input )[ i ], &newImage ) ) {
-			input->emplace_back( newImage );
-			target->emplace_back( ( *target )[ i ] );
+		for( size_t i = 0; i < orgSize; i++ ) {
+			DataVector newImage;
+			if( Utils::centerMnistImage( ( *input )[ i ], &newImage ) ) {
+				input->emplace_back( newImage );
+				target->emplace_back( ( *target )[ i ] );
+			}
 		}
 	}
 
@@ -73,6 +75,11 @@ void test( const CmdArgs_t & args )
 	if( ! loadData( args, &input, &target, &input4eval, &target4eval ) ) {
 		printf( "loadData fail\n" );
 		return;
+	}
+
+	if( gx_is_inner_debug ) {
+		Utils::printMatrix( "input", input );
+		Utils::printMatrix( "target", target );
 	}
 
 	const char * path = "./mnist.model";
@@ -104,7 +111,7 @@ void test( const CmdArgs_t & args )
 			network.addLayer( layer );
 		}
 
-		gx_eval( "before train", network, input4eval, target4eval, args.mIsDebug );
+		gx_eval( "before train", network, input4eval, target4eval );
 
 		network.print();
 
@@ -114,7 +121,7 @@ void test( const CmdArgs_t & args )
 
 		printf( "train %s\n", ret ? "succ" : "fail" );
 
-		//gx_eval( "after train", network, input4eval, target4eval, args.mIsDebug );
+		//gx_eval( "after train", network, input4eval, target4eval );
 	}
 
 	//load model
@@ -123,7 +130,7 @@ void test( const CmdArgs_t & args )
 
 		Utils::load( path, &network );
 
-		gx_eval( "load model", network, input4eval, target4eval, args.mIsDebug );
+		gx_eval( "load model", network, input4eval, target4eval );
 	}
 }
 
@@ -137,7 +144,6 @@ int main( const int argc, char * argv[] )
 		.mMiniBatchCount = 100,
 		.mLearningRate = 3.0,
 		.mLambda = 5.0,
-		.mIsDebug = false,
 		.mIsShuffle = true,
 	};
 

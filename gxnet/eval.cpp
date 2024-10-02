@@ -4,11 +4,11 @@
 
 namespace gxnet {
 
-void gx_eval( const char * tag, Network & network, DataMatrix & input, DataMatrix & target, bool isDebug )
+void gx_eval( const char * tag, Network & network, DataMatrix & input, DataMatrix & target )
 {
 	printf( "%s( %s, ..., input { %ld }, target { %ld } )\n", __func__, tag, input.size(), target.size() );
 
-	if( isDebug ) network.print();
+	if( gx_is_inner_debug ) network.print();
 	network.setTraining( false );
 
 	DataMatrix confusionMatrix;
@@ -35,14 +35,14 @@ void gx_eval( const char * tag, Network & network, DataMatrix & input, DataMatri
 		int outputType = Utils::max_index( std::begin( output ), std::end( output ) );
 		int targetType = Utils::max_index( std::begin( target[ i ] ), std::end( target[ i ] ) );
 
-		if( isDebug ) printf( "forward %d, index %zu, %d %d\n", ret, i, outputType, targetType );
+		if( gx_is_inner_debug ) printf( "forward %d, index %zu, %d %d\n", ret, i, outputType, targetType );
 
 		if( outputType == targetType ) correct++;
 
 		confusionMatrix[ targetType ][ outputType ] += 1;
 		targetTotal[ targetType ] += 1;
 
-		for( size_t j = 0; isDebug && j < output.size() && j < 10; j++ ) {
+		for( size_t j = 0; gx_is_inner_debug && j < output.size() && j < 10; j++ ) {
 			printf( "\t%zu %.8f %.8f\n", j, output[ j ], target[ i ][ j ] );
 		}
 	}
