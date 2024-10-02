@@ -9,6 +9,10 @@
 #include <cstdio>
 
 #include <iostream>
+#include <numeric>
+#include <algorithm>
+#include <memory>
+#include <execution>
 
 namespace gxnet {
 
@@ -25,60 +29,37 @@ BaseLayer :: ~BaseLayer()
 	if( NULL != mActFunc ) delete mActFunc;
 }
 
-void BaseLayer :: forward( BaseLayerCtx * ctx ) const
+void BaseLayer :: forward( BaseLayerContext * ctx ) const
 {
-	assert( ctx->getForwardCtx().getInput().size() == getInputSize() );
-
-	ForwardCtx & fwdCtx = ctx->getForwardCtx();
-
 	calcOutput( ctx );
+
 	if( NULL != mActFunc ) {
-		if( gx_is_inner_debug ) Utils::printVector( "before.act", fwdCtx.getOutput() );
+		MDSpanRO outMS( ctx->getOutMS() );
 
-		mActFunc->activate( fwdCtx.getOutput(), &( fwdCtx.getOutput() ) );
+		if( gx_is_inner_debug ) Utils::printMDSpan( "before.act", outMS );
 
-		if( gx_is_inner_debug ) Utils::printVector( "after.act", fwdCtx.getOutput() );
+		mActFunc->activate( outMS, &( ctx->getOutMS() ) );
+
+		if( gx_is_inner_debug ) Utils::printMDSpan( "after.act", ctx->getOutRO() );
 	}
+
+	ctx->getDelta().resize( ctx->getOutMS().data().size() );
 }
 
-void BaseLayer :: backward( BaseLayerCtx * ctx, DataVector * inDelta ) const
+void BaseLayer :: backward( BaseLayerContext * ctx, DataVector * inDelta ) const
 {
-	ForwardCtx & fwdCtx = ctx->getForwardCtx();
-	BackwardCtx & bwdCtx = ctx->getBackwardCtx();
-
-	if( NULL != mActFunc ) mActFunc->derivate( fwdCtx.getOutput(), &( bwdCtx.getDelta() ) );
+	if( NULL != mActFunc ) {
+		MDSpanRO outMS( ctx->getOutMS() );
+		MDSpanRW deltaMS( ctx->getDelta(), ctx->getOutMS().dims() );
+		mActFunc->derivate( outMS, &deltaMS );
+	}
 
 	if( NULL != inDelta ) backpropagate( ctx, inDelta );
 }
 
-BaseLayerCtx * BaseLayer :: createCtx( const DataVector * input ) const
+BaseLayerContext * BaseLayer :: createCtx() const
 {
-	BaseLayerCtx * ctx = newCtx( input );
-
-	ctx->getForwardCtx().getOutput().resize( getOutputSize() );
-	ctx->getBackwardCtx().getDelta().resize( getOutputSize() );
-
-	return ctx;
-}
-
-const size_t BaseLayer :: getInputSize() const
-{
-	return gx_dims_flatten_size( mInputDims );
-}
-
-const Dims & BaseLayer :: getInputDims() const
-{
-	return mInputDims;
-}
-
-const size_t BaseLayer :: getOutputSize() const
-{
-	return gx_dims_flatten_size( mOutputDims );
-}
-
-const Dims & BaseLayer :: getOutputDims() const
-{
-	return mOutputDims;
+	return newCtx();
 }
 
 int BaseLayer :: getType() const
@@ -104,20 +85,18 @@ void BaseLayer :: setTraining( bool isTraining )
 
 void BaseLayer :: print( bool isDetail ) const
 {
-	printf( "Type = %d; ActFuncType = %d; InputDims = %s; OutputDims = %s;\n",
-			mType, mActFunc ? mActFunc->getType() : -1,
-			gx_vector2string( mInputDims ).c_str(),
-			gx_vector2string( mOutputDims ).c_str() );
+	printf( "Type = %d; ActFuncType = %d; \n",
+			mType, mActFunc ? mActFunc->getType() : -1 );
 
 	printWeights( isDetail );
 }
 
-void BaseLayer :: collectGradients( BaseLayerCtx * ctx ) const
+void BaseLayer :: collectGradients( BaseLayerContext * ctx ) const
 {
 	/* do nothing */
 }
 
-void BaseLayer :: applyGradients( BackwardCtx * ctx, Optim * optim,
+void BaseLayer :: applyGradients( BackwardContext * ctx, Optim * optim,
 			size_t trainingCount, size_t miniBatchCount )
 {
 	/* do nothing */
@@ -125,20 +104,17 @@ void BaseLayer :: applyGradients( BackwardCtx * ctx, Optim * optim,
 
 ////////////////////////////////////////////////////////////
 
-FullConnLayer :: FullConnLayer( const Dims & inputDims, size_t neuronCount )
-	: BaseLayer( BaseLayer::eFullConn )
+FullConnLayer :: FullConnLayer( size_t neuronCount, size_t inSize )
+	: BaseLayer( eFullConn )
 {
 	mWeights.resize( neuronCount );
 	for( auto & neuron : mWeights ) {
-		neuron.resize( gx_dims_flatten_size( inputDims ) );
+		neuron.resize( inSize );
 		for( auto & w : neuron ) w = gx_is_inner_debug ? 0.5 : Utils::random();
 	}
 
 	mBiases.resize( neuronCount );
 	for( auto & b : mBiases ) b = gx_is_inner_debug ? 0.5 : Utils::random();
-
-	mInputDims = inputDims;
-	mOutputDims = { neuronCount };
 }
 
 FullConnLayer :: ~FullConnLayer()
@@ -149,7 +125,7 @@ void FullConnLayer :: printWeights( bool isDetail ) const
 {
 	if( !isDetail ) return;
 
-	printf( "Weights: Count = %zu; InputCount = %zu;\n", mWeights.size(), mWeights[ 0 ].size() );
+	printf( "Weights: Count = %zu; InSize = %zu;\n", mWeights.size(), mWeights[ 0 ].size() );
 	for( size_t i = 0; i < mWeights.size() && i < 10; i++ ) {
 		printf( "\tNeuron#%zu: WeightCount = %zu, Bias = %.8f\n", i, mWeights[ i ].size(), mBiases[ i ] );
 		for( size_t j = 0; j < mWeights[ i ].size() && j < 10; j++ ) {
@@ -178,71 +154,114 @@ void FullConnLayer :: setWeights( const DataMatrix & weights, const DataVector &
 	mBiases = biases;
 }
 
-void FullConnLayer :: calcOutput( BaseLayerCtx * ctx ) const
+void FullConnLayer :: calcOutput( BaseLayerContext * ctx ) const
 {
-	assert( ctx->getForwardCtx().getOutput().size() == mWeights.size() );
+	size_t total = gx_dims_flatten_size( ctx->getInMS().dims() );
 
-	ForwardCtx & fwdCtx = ctx->getForwardCtx();
+	size_t inSize = mWeights[ 0 ].size();
+	size_t sampleCount = total / inSize;
 
-	for( size_t i = 0; i < mWeights.size(); i++ ) {
-		//( *output )[ i ]  = ( mWeights[ i ] * input ).sum();
-		fwdCtx.getOutput()[ i ]  = gx_inner_product( mWeights[ i ], fwdCtx.getInput() );
-		if( ! gx_is_inner_debug )  fwdCtx.getOutput()[ i ] += mBiases[ i ];
+	MDSpanRW & outMS = ctx->getOutMS();
+
+	outMS.dims() = { sampleCount, mWeights.size() };
+	outMS.data().resize( gx_dims_flatten_size( ctx->getOutMS().dims() ) );
+
+	const DataType * input = std::begin( ctx->getInMS().data() );
+
+	for( size_t n = 0; n < sampleCount; n++, input += inSize ) {
+		for( size_t i = 0; i < mWeights.size(); i++ ) {
+			outMS( n, i ) = gx_inner_product( std::begin( mWeights[ i ] ), input, inSize );
+			if( !gx_is_inner_debug )  outMS( n, i ) += mBiases[ i ];
+		}
 	}
 
 	if( gx_is_inner_debug ) {
-		Utils::printVector( "input", fwdCtx.getInput() );
-		Utils::printVector( "output", fwdCtx.getOutput() );
+		Utils::printMDSpan( "input", ctx->getInMS() );
+		Utils::printMDSpan( "output", ctx->getOutRO() );
 	}
 }
 
-void FullConnLayer :: backpropagate( BaseLayerCtx * ctx, DataVector * inDelta ) const
+void FullConnLayer :: backpropagate( BaseLayerContext * ctx, DataVector * inDelta ) const
 {
-	BackwardCtx & bwdCtx = ctx->getBackwardCtx();
+	if( NULL == inDelta ) return;
 
-	DataVector temp( bwdCtx.getDelta().size() );
+	FullConnLayerContext * impl = dynamic_cast< FullConnLayerContext * >( ctx );
 
-	if( NULL != inDelta ) {
-		for( size_t i = 0; i < inDelta->size(); i++ ) {
-			for( size_t j = 0; j < bwdCtx.getDelta().size(); j++ ) temp[ j ] = mWeights[ j ][ i ];
-			( *inDelta )[ i ] = gx_inner_product( bwdCtx.getDelta(), temp );
+	size_t total = gx_dims_flatten_size( ctx->getOutMS().dims() );
+	size_t sampleCount = total / mWeights.size();
+
+	Dims inDeltaDims = { sampleCount, mWeights[ 0 ].size() };
+
+	inDelta->resize( gx_dims_flatten_size( inDeltaDims ) );
+
+	MDSpanRW inDeltaMS( *inDelta, inDeltaDims );
+
+	DataVector & temp = impl->getTempWeights();
+	temp.resize( mWeights.size() );
+
+	for( size_t i = 0; i < mWeights[ 0 ].size(); i++ ) {
+		for( size_t j = 0; j < mWeights.size(); j++ ) temp[ j ] = mWeights[ j ][ i ];
+
+		const DataType * delta = std::begin( ctx->getDelta() );
+		for( size_t n = 0; n < sampleCount; n++, delta += temp.size() ) {
+			inDeltaMS( n, i ) = gx_inner_product( delta, std::begin( temp ), temp.size() );
 		}
 	}
 }
 
-BaseLayerCtx * FullConnLayer :: newCtx( const DataVector * input ) const
+BaseLayerContext * FullConnLayer :: newCtx() const
 {
-	BaseLayerCtx* ctx = new BaseLayerCtx( input );
-
-	BackwardCtx & bwdCtx = ctx->getBackwardCtx();
-
-	bwdCtx.getGradients().reserve( getOutputSize() );
-
-	for( size_t i = 0; i < getOutputSize(); i++ ) {
-		bwdCtx.getGradients().emplace_back( DataVector( getInputSize() ) );
-	}
-
-	return ctx;
+	return new FullConnLayerContext();
 }
 
-void FullConnLayer :: collectGradients( BaseLayerCtx * ctx ) const
+void FullConnLayer :: collectGradients( BaseLayerContext * ctx ) const
 {
-	ForwardCtx & fwdCtx = ctx->getForwardCtx();
-	BackwardCtx & bwdCtx = ctx->getBackwardCtx();
+	size_t total = gx_dims_flatten_size( ctx->getInMS().dims() );
 
-	for( size_t i = 0; i < mWeights.size(); i++ ) {
-		gx_vs_product( fwdCtx.getInput(), bwdCtx.getDelta()[ i ], &( bwdCtx.getGradients()[ i ] ) );
+	size_t inSize = mWeights[ 0 ].size();
+	size_t sampleCount = total / inSize;
+
+	if( ctx->getGradients().size() <= 0 ) {
+		ctx->getGradients().reserve( mWeights.size() );
+		for( size_t i = 0; i < mWeights.size(); i++ ) {
+			ctx->getGradients().emplace_back( DataVector( inSize ) );
+		}
+	}
+
+	const DataType * input = std::begin( ctx->getInMS().data() );
+	const DataType * delta = std::begin( ctx->getDelta() );
+
+	FullConnLayerContext * impl = dynamic_cast< FullConnLayerContext * >( ctx );
+	DataVector & tempGradients = impl->getTempGradients();
+	tempGradients.resize( inSize );
+
+	//DataVector tempGradients( inSize );
+
+	for( size_t n = 0; n < sampleCount; n++, input += inSize, delta += mWeights.size() ) {
+		for( size_t i = 0; i < mWeights.size(); i++ ) {
+			gx_vs_product( input,  delta[ i ], std::begin( tempGradients ), inSize );
+
+			if( n == 0 ) {
+				//ctx->getGradients()[ i ] = tempGradients;
+				std::copy( std::begin( tempGradients ), std::end( tempGradients ), std::begin( ctx->getGradients()[ i ] ) );
+			} else {
+				//ctx->getGradients()[ i ] += tempGradients;
+				std::transform( std::begin( tempGradients ), std::end( tempGradients ),
+						std::begin( ctx->getGradients()[ i ] ), std::begin( ctx->getGradients()[ i ] ),
+						std::plus< DataType >() );
+			}
+		}
 	}
 }
 
-void FullConnLayer :: applyGradients( BackwardCtx * ctx, Optim * optim,
+void FullConnLayer :: applyGradients( BackwardContext * ctx, Optim * optim,
 			size_t trainingCount, size_t miniBatchCount )
 {
 	for( size_t n = 0; n < mWeights.size(); n++ ) {
 		optim->update( &( mWeights[ n ] ), ctx->getGradients()[ n ], trainingCount, miniBatchCount );
 	}
 
-	if( ! gx_is_inner_debug ) optim->updateBiases( &mBiases, ctx->getDelta(), miniBatchCount );
+	if( !gx_is_inner_debug ) optim->updateBiases( &mBiases, ctx->getDelta(), miniBatchCount );
 }
 
 }; // namespace gxnet;

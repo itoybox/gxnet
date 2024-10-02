@@ -282,29 +282,29 @@ void Utils :: printMatrix( const char * tag, const DataMatrix & data,
 	}
 }
 
-void Utils :: printCtx( const char * tag, const BaseLayerCtxPtrVector & data )
+void Utils :: printCtx( const char * tag, const BaseLayerContextPtrVector & data )
 {
 	printf( "%s.output { %ld }\n", tag, data.size() );
 	for( size_t i = 0; i < data.size(); i++ ) {
 		printf( "#%ld ", i );
-		for( auto & item : data[ i ]->getForwardCtx().getOutput() ) printf( "%8e ", item );
+		for( auto & item : data[ i ]->getOutMS().data() ) printf( "%8e ", item );
 		printf( "\n" );
 	}
 
 	printf( "%s.delta { %ld }\n", tag, data.size() );
 	for( size_t i = 0; i < data.size(); i++ ) {
 		printf( "#%ld ", i );
-		for( auto & item : data[ i ]->getBackwardCtx().getDelta() ) printf( "%8e ", item );
+		for( auto & item : data[ i ]->getDelta() ) printf( "%8e ", item );
 		printf( "\n" );
 	}
 
-	printf( "%s.gradient { %ld }\n", tag, data.size() );
+	printf( "%s.gradients { %ld }\n", tag, data.size() );
 	for( size_t i = 0; i < data.size(); i++ ) {
-		printMatrix( std::to_string( i ).c_str(), data[ i ]->getBackwardCtx().getGradients() );
+		printMatrix( std::to_string( i ).c_str(), data[ i ]->getGradients() );
 	}
 }
 
-void Utils :: printCtx( const char * tag, const BackwardCtxPtrVector & data )
+void Utils :: printCtx( const char * tag, const BackwardContextPtrVector & data )
 {
 	printf( "%s.delta { %ld }\n", tag, data.size() );
 	for( size_t i = 0; i < data.size(); i++ ) {
@@ -313,7 +313,7 @@ void Utils :: printCtx( const char * tag, const BackwardCtxPtrVector & data )
 		printf( "\n" );
 	}
 
-	printf( "%s.gradient { %ld }\n", tag, data.size() );
+	printf( "%s.gradients { %ld }\n", tag, data.size() );
 	for( size_t i = 0; i < data.size(); i++ ) {
 		printMatrix( std::to_string( i ).c_str(), data[ i ]->getGradients() );
 	}
@@ -351,9 +351,7 @@ void Utils :: printMDSpan( const char * tag, const MDSpanRO & data, bool useSciF
 				}
 				printf( "\n" );
 			}
-			printf( "\n" );
 		}
-		printf( "\n" );
 	}
 	printf( "}}}\n\n" );
 }
@@ -379,14 +377,14 @@ bool Utils :: save( const char * path, const Network & network )
 	for( size_t i = 0; i < network.getLayers().size(); i++ ) {
 		BaseLayer * layer = network.getLayers() [ i ];
 
-		fprintf( fp, "Layer#%ld: Type = %d; ActFuncType = %d; InputDims = %s;\n",
+		fprintf( fp, "Layer#%ld: Type = %d; ActFuncType = %d; \n",
 				i, layer->getType(),
-				layer->getActFunc() ? layer->getActFunc()->getType() : -1,
-				gx_vector2string( layer->getInputDims() ).c_str() );
+				layer->getActFunc() ? layer->getActFunc()->getType() : -1 );
 
 		if( BaseLayer::eFullConn == layer->getType() ) {
 			FullConnLayer * fc = (FullConnLayer*)layer;
-			fprintf( fp, "Weights: Count = %zu;\n", fc->getWeights().size() );
+			fprintf( fp, "Weights: Count = %zu; InSize = %zu; \n",
+					fc->getWeights().size(), fc->getWeights()[ 0 ].size() );
 			for( size_t k = 0; k < fc->getWeights().size(); k++ ) {
 				fprintf( fp, "%s\n", gx_vector2string( fc->getWeights()[ k ] ).c_str() );
 			}
@@ -436,22 +434,20 @@ bool Utils :: load( const char * path, Network * network )
 		int layerType = std::stoi( getString( line, "Type = (\\S+);", "0" ) );
 		int actFuncType = std::stoi( getString( line, "ActFuncType = (\\S+);", "0" ) );
 
-		Dims inputDims;
-		gx_string2vector( getString( line, "InputDims = (\\S+);", "0" ), &inputDims );
-
 		if( BaseLayer::eFullConn == layerType ) {
-			// Weights: Count = xx;
+			// Weights: Count = xx; InSize = xx;
 			if( ! std::getline( fp, line ) ) return false;
 
 			int count = std::stoi( getString( line, "Count = (\\S+);", "0" ) );
+			int inSize = std::stoi( getString( line, "Size = (\\S+);", "0" ) );
 
-			layer = new FullConnLayer( inputDims, count );
+			layer = new FullConnLayer( count, inSize );
 
 			DataMatrix weights( count );
 			for( int i = 0; i < count; i++ ) {
 				if( ! std::getline( fp, line ) ) return false;
 
-				weights[ i ].resize( gx_dims_flatten_size( inputDims ) );
+				weights[ i ].resize( inSize );
 				gx_string2valarray( line, &( weights[ i ] ) );
 			}
 
@@ -558,7 +554,6 @@ void Utils :: getCmdArgs( int argc, char * const argv[],
 	printf( "\tsimd::size %zu\n", DataSimd::size() );
 	printf( "\n" );
 }
-
 
 }; // namespace gxnet;
 

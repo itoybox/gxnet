@@ -3,89 +3,84 @@
 
 namespace gxnet {
 
-ForwardCtx :: ForwardCtx( const DataVector * input )
-{
-	mInput = input;
-}
-
-ForwardCtx :: ~ForwardCtx()
+BackwardContext :: BackwardContext()
 {
 }
 
-void ForwardCtx :: setInput( const DataVector * input )
-{
-	mInput = input;
-}
-
-const DataVector & ForwardCtx :: getInput()
-{
-	return *mInput;
-}
-
-DataVector & ForwardCtx :: getOutput()
-{
-	return mOutput;
-}
-
-////////////////////////////////////////////////////////////
-
-BackwardCtx :: BackwardCtx()
+BackwardContext :: ~BackwardContext()
 {
 }
 
-BackwardCtx :: BackwardCtx( const BackwardCtx & other )
-{
-	mDelta.resize( other.getDelta().size() );
-
-	for( auto & item : other.getGradients() ) {
-		mGradients.emplace_back( DataVector( item.size() ) );
-	}
-}
-
-BackwardCtx :: ~BackwardCtx()
-{
-}
-
-DataVector & BackwardCtx :: getDelta()
+DataVector & BackwardContext :: getDelta()
 {
 	return mDelta;
 }
 
-const DataVector & BackwardCtx :: getDelta() const
+const DataVector & BackwardContext :: getDelta() const
 {
 	return mDelta;
 }
 
-DataMatrix & BackwardCtx :: getGradients()
+DataMatrix & BackwardContext :: getGradients()
 {
 	return mGradients;
 }
 
-const DataMatrix & BackwardCtx :: getGradients() const
+const DataMatrix & BackwardContext :: getGradients() const
 {
 	return mGradients;
 }
-
 
 ////////////////////////////////////////////////////////////
 
-BaseLayerCtx :: BaseLayerCtx( const DataVector * input )
-	: mForwardCtx( input )
+BaseLayerContext :: BaseLayerContext()
+	: mOutMS( mOutput ), mOutRO( mOutMS )
+{
+	mInMS = NULL;
+}
+
+BaseLayerContext :: ~BaseLayerContext()
 {
 }
 
-BaseLayerCtx :: ~BaseLayerCtx()
+void BaseLayerContext :: setInMS( const MDSpanRO * inMS )
+{
+	mInMS = inMS;
+}
+
+const MDSpanRO & BaseLayerContext :: getInMS()
+{
+	return *mInMS;
+}
+
+MDSpanRW & BaseLayerContext :: getOutMS()
+{
+	return mOutMS;
+}
+
+const MDSpanRO & BaseLayerContext :: getOutRO()
+{
+	return mOutRO;
+}
+
+////////////////////////////////////////////////////////////
+
+FullConnLayerContext :: FullConnLayerContext()
 {
 }
 
-ForwardCtx & BaseLayerCtx :: getForwardCtx()
+FullConnLayerContext :: ~FullConnLayerContext()
 {
-	return mForwardCtx;
 }
 
-BackwardCtx & BaseLayerCtx :: getBackwardCtx()
+DataVector & FullConnLayerContext :: getTempWeights()
 {
-	return mBackwardCtx;
+	return mTempWeights;
+}
+
+DataVector & FullConnLayerContext :: getTempGradients()
+{
+	return mTempGradients;
 }
 
 }; // namespace gxnet;

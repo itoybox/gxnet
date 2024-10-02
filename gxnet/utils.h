@@ -48,9 +48,9 @@ public:
 	static void printMatrix( const char * tag, const DataMatrix & data,
 			bool useSciFmt = true, bool colorMax = false);
 
-	static void printCtx( const char * tag, const BaseLayerCtxPtrVector & data );
+	static void printCtx( const char * tag, const BaseLayerContextPtrVector & data );
 
-	static void printCtx( const char * tag, const BackwardCtxPtrVector & data );
+	static void printCtx( const char * tag, const BackwardContextPtrVector & data );
 
 	static void printVector( const char * tag, const DataVector & data, bool useSciFmt = true );
 

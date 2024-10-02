@@ -68,7 +68,8 @@ bool loadData( const char * filename, DataMatrix * data, std::set< int > * label
 	return true;
 }
 
-void check( const char * tag, Network & network, DataMatrix & input, DataMatrix & target )
+void check( const char * tag, Network & network, DataMatrix & input, const Dims & inDims,
+		DataMatrix & target )
 {
 	if( gx_is_inner_debug ) network.print();
 
@@ -78,14 +79,14 @@ void check( const char * tag, Network & network, DataMatrix & input, DataMatrix 
 
 		DataVector output;
 
-		bool ret = network.forward( input[ i ], &output );
+		bool ret = network.forward( input[ i ], inDims, &output );
 
 		int outputType = Utils::max_index( std::begin( output ), std::end( output ) );
 		int targetType = Utils::max_index( std::begin( target[ i ] ), std::end( target[ i ] ) );
 
-		if( outputType == targetType ) correct++;
-
 		if( gx_is_inner_debug ) printf( "forward %d, index %zu, %d %d\n", ret, i, outputType, targetType );
+
+		if( outputType == targetType ) correct++;
 
 		for( size_t j = 0; gx_is_inner_debug && j < output.size(); j++ ) {
 			printf( "\t%zu %.8f %.8f\n", j, output[ j ], target[ i ][ j ] );
@@ -152,6 +153,8 @@ void test( const CmdArgs_t & args )
 
 	splitData( args, data, labels, &input, &target, &input4eval, &target4eval );
 
+	Dims inDims = { input[ 0 ].size() };
+
 	const char * path = "./seeds.model";
 
 	// train & check & save
@@ -162,25 +165,25 @@ void test( const CmdArgs_t & args )
 
 		BaseLayer * layer = NULL;
 
-		layer = new FullConnLayer( { input[ 0 ].size() }, 5 );
+		layer = new FullConnLayer( 5, input[ 0 ].size() );
 		layer->setActFunc( ActFunc::sigmoid() );
 		network.addLayer( layer );
 
-		layer = new FullConnLayer( layer->getOutputDims(), target[ 0 ].size() );
+		layer = new FullConnLayer( target[ 0 ].size(), 5 );
 		layer->setActFunc( ActFunc::softmax() );
 		network.addLayer( layer );
 
-		check( "before train", network, input4eval, target4eval );
+		check( "before train", network, input4eval, inDims, target4eval );
 
 		network.print( true );
 
-		bool ret = network.train( input, target, args );
+		bool ret = network.train( input, inDims, target, args );
 
 		Utils::save( path, network );
 
 		printf( "train %s\n", ret ? "succ" : "fail" );
 
-		check( "after train", network, input4eval, target4eval );
+		check( "after train", network, input4eval, inDims, target4eval );
 	}
 
 	{
@@ -190,7 +193,7 @@ void test( const CmdArgs_t & args )
 
 		network.print();
 
-		check( "load model", network, input4eval, target4eval );
+		check( "load model", network, input4eval, inDims, target4eval );
 	}
 }
 

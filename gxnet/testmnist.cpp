@@ -84,6 +84,8 @@ void test( const CmdArgs_t & args )
 
 	const char * path = "./mnist.model";
 
+	Dims inDims = { 28, 28 };
+
 	//train & save model
 	{
 		Network network;
@@ -102,26 +104,26 @@ void test( const CmdArgs_t & args )
 
 			Dims dims = { 1, (size_t)std::sqrt( input[ 0 ].size() ), (size_t)std::sqrt( input[ 0 ].size() ) };
 
-			layer = new FullConnLayer( layer ? layer->getOutputDims() : dims, 30 );
+			layer = new FullConnLayer( 30, gx_dims_flatten_size( inDims ) );
 			layer->setActFunc( ActFunc::sigmoid() );
 			network.addLayer( layer );
 
-			layer = new FullConnLayer( layer->getOutputDims(), target[ 0 ].size() );
+			layer = new FullConnLayer( target[ 0 ].size(), 30 );
 			layer->setActFunc( ActFunc::softmax() );
 			network.addLayer( layer );
 		}
 
-		gx_eval( "before train", network, input4eval, target4eval );
+		gx_eval( "before train", network, input4eval, inDims, target4eval );
 
 		network.print();
 
-		bool ret = network.train( input, target, args );
+		bool ret = network.train( input, inDims, target, args );
 
 		Utils::save( path, network );
 
 		printf( "train %s\n", ret ? "succ" : "fail" );
 
-		//gx_eval( "after train", network, input4eval, target4eval );
+		//gx_eval( "after train", network, input4eval, inDims, target4eval );
 	}
 
 	//load model
@@ -130,7 +132,7 @@ void test( const CmdArgs_t & args )
 
 		Utils::load( path, &network );
 
-		gx_eval( "load model", network, input4eval, target4eval );
+		gx_eval( "load model", network, input4eval, inDims, target4eval );
 	}
 }
 

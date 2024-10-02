@@ -5,6 +5,8 @@
 #include <random>
 #include <numeric>
 #include <algorithm>
+#include <memory>
+#include <execution>
 
 #include <sys/time.h>
 #include <sys/resource.h>
@@ -12,89 +14,107 @@
 
 namespace gxnet {
 
-NetworkCtx :: NetworkCtx()
+NetworkContext :: NetworkContext()
 {
 }
 
-NetworkCtx :: ~NetworkCtx()
+NetworkContext :: ~NetworkContext()
 {
 	for( auto & item : mLayerCtx ) delete item;
-	for( auto & item : mBatchCtx ) delete item;
+	for( auto & item : mBatchBwdCtx ) delete item;
 }
 
-void NetworkCtx :: setTrainingData( const DataMatrix * input, const DataMatrix * target )
+void NetworkContext :: setTrainingData( const TrainingData & data )
 {
-	mInput = input;
-	mTarget = target;
+	mTrainingData = data;
 }
 
-const DataMatrix & NetworkCtx :: getInput()
+const TrainingData & NetworkContext :: getTrainingData()
 {
-	return *mInput;
+	return mTrainingData;
 }
 
-const DataMatrix & NetworkCtx :: getTarget()
+void NetworkContext :: setChunkInfo( const ChunkInfo & info )
 {
-	return *mTarget;
+	mChunkInfo = info;
 }
 
-void NetworkCtx :: setChunk( const IntVector * idxOfData, size_t begin, size_t end )
+const ChunkInfo & NetworkContext :: getChunkInfo()
 {
-	mIdxOfData = idxOfData;
-	mChunkBegin = begin;
-	mChunkEnd = end;
+	return mChunkInfo;
 }
 
-const IntVector & NetworkCtx :: getIdxOfData()
+DataVector & NetworkContext :: getBatchInput()
 {
-	return *mIdxOfData;
+	return mBatchInput;
 }
 
-size_t NetworkCtx :: getChunkBegin()
+DataVector & NetworkContext :: getBatchTarget()
 {
-	return mChunkBegin;
+	return mBatchTarget;
 }
 
-size_t NetworkCtx :: getChunkEnd()
-{
-	return mChunkEnd;
-}
-
-BaseLayerCtx * NetworkCtx :: getLayerCtx( size_t index )
+BaseLayerContext * NetworkContext :: getLayerCtx( size_t index )
 {
 	return mLayerCtx[ index ];
 }
 
-BaseLayerCtxPtrVector & NetworkCtx :: getLayerCtx()
+BaseLayerContextPtrVector & NetworkContext :: getLayerCtx()
 {
 	return mLayerCtx;
 }
 
-BackwardCtx * NetworkCtx :: getBatchCtx( size_t index )
+BackwardContext * NetworkContext :: getBatchBwdCtx( size_t index )
 {
-	return mBatchCtx[ index ];
+	return mBatchBwdCtx[ index ];
 }
 
-BackwardCtxPtrVector & NetworkCtx :: getBatchCtx()
+BackwardContextPtrVector & NetworkContext :: getBatchBwdCtx()
 {
-	return mBatchCtx;
+	return mBatchBwdCtx;
 }
 
-void NetworkCtx :: clearBatch()
+void NetworkContext :: clearBatch()
 {
-	for( auto & ctx : mBatchCtx ) {
+	for( auto & ctx : mBatchBwdCtx ) {
 		for( auto & vec : ctx->getGradients() ) vec = 0.0;
 		ctx->getDelta() = 0.0;
 	}
 }
 
-void NetworkCtx :: addToBatch()
+void NetworkContext :: addToBatch()
 {
-	for( size_t i = 0; i < mBatchCtx.size(); i++ ) {
-		mBatchCtx[ i ]->getDelta() += mLayerCtx[ i ]->getBackwardCtx().getDelta();
+	if( mBatchBwdCtx.size() <= 0 ) {
+		for( size_t i = 0; i < mLayerCtx.size(); i++ ) {
+			mBatchBwdCtx.emplace_back( new BackwardContext() );
 
-		for( size_t j = 0; j < mBatchCtx[ i ]->getGradients().size(); j++ ) {
-			mBatchCtx[ i ]->getGradients()[ j ] += mLayerCtx[ i ]->getBackwardCtx().getGradients()[ j ];
+			Dims & outDims = mLayerCtx[ i ]->getOutMS().dims();
+			mBatchBwdCtx[ i ]->getDelta().resize( gx_dims_flatten_size( outDims ) / outDims[ 0 ] );
+
+			for( auto & item : mLayerCtx[ i ]->getGradients() ) {
+				mBatchBwdCtx[ i ]->getGradients().emplace_back( DataVector( item.size() ) );
+			}
+		}
+	}
+
+	for( size_t i = 0; i < mBatchBwdCtx.size(); i++ ) {
+		DataVector & delta = mBatchBwdCtx[ i ]->getDelta();
+
+		size_t total = mLayerCtx[ i ]->getDelta().size();
+		DataType * deltaPtr = std::begin( mLayerCtx[ i ]->getDelta() );
+		for( size_t index = 0; index < total; index += delta.size(), deltaPtr += delta.size() ) {
+			std::transform( deltaPtr, deltaPtr + delta.size(),
+					std::begin( delta ), std::begin( delta ), std::plus<DataType>() );
+		}
+
+		for( size_t j = 0; j < mBatchBwdCtx[ i ]->getGradients().size(); j++ ) {
+			//mBatchBwdCtx[ i ]->getGradients()[ j ] += mLayerCtx[ i ]->getGradients()[ j ];
+
+			std::transform( std::begin( mLayerCtx[ i ]->getGradients()[ j ] ),
+					std::end( mLayerCtx[ i ]->getGradients()[ j ] ),
+					std::begin( mBatchBwdCtx[ i ]->getGradients()[ j ] ),
+					std::begin( mBatchBwdCtx[ i ]->getGradients()[ j ] ),
+					std::plus< DataType >() );
 		}
 	}
 }
@@ -165,33 +185,28 @@ void Network :: addLayer( BaseLayer * layer )
 	mLayers.emplace_back( layer );
 }
 
-bool Network :: forward( const DataVector & input, DataVector * output ) const
+bool Network :: forward( const DataVector & input, const Dims & inDims,
+		DataVector * output ) const
 {
-	NetworkCtx ctx;
+	NetworkContext ctx;
 	initCtx( &ctx );
 
-	ctx.getLayerCtx( 0 )->getForwardCtx().setInput( &input );
+	MDSpanRO inMS( input, inDims );
+	ctx.getLayerCtx( 0 )->setInMS( &inMS );
 
 	bool ret = forward( &ctx );
 
-	*output = ctx.getLayerCtx().back()->getForwardCtx().getOutput();
+	*output = ctx.getLayerCtx().back()->getOutMS().data();
 
 	return ret;
 }
 
-bool Network :: forward( NetworkCtx * ctx ) const
+bool Network :: forward( NetworkContext * ctx ) const
 {
-	if( ctx->getLayerCtx(0)->getForwardCtx().getInput().size() != mLayers[ 0 ]->getInputSize() ) {
-		printf( "%s input.size %zu, layer[0].inputSize %zu",
-				__func__, ctx->getLayerCtx(0)->getForwardCtx().getInput().size(),
-				mLayers[ 0 ]->getInputSize() );
-		return false;
-	}
-
 	for( size_t i = 0; i < mLayers.size(); i++ ) {
 		BaseLayer * layer = mLayers[ i ];
 
-		BaseLayerCtx * layerCtx = ctx->getLayerCtx( i );
+		BaseLayerContext * layerCtx = ctx->getLayerCtx( i );
 
 		layer->forward( layerCtx );
 	}
@@ -199,18 +214,18 @@ bool Network :: forward( NetworkCtx * ctx ) const
 	return true;
 }
 
-bool Network :: apply( NetworkCtx * ctx, Optim * optim,
+bool Network :: apply( NetworkContext * ctx, Optim * optim,
 		size_t trainingCount, size_t miniBatchCount )
 {
 	for( size_t i = 0; i < mLayers.size(); i++ ) {
 		BaseLayer * layer = mLayers[ i ];
-		layer->applyGradients( ctx->getBatchCtx( i ), optim, trainingCount, miniBatchCount );
+		layer->applyGradients( ctx->getBatchBwdCtx( i ), optim, trainingCount, miniBatchCount );
 	}
 
 	return true;
 }
 
-void Network :: collect( NetworkCtx * ctx ) const
+void Network :: collect( NetworkContext * ctx ) const
 {
 	for( size_t i = 0; i < mLayers.size(); i++ ) {
 		BaseLayer * layer = mLayers[ i ];
@@ -218,28 +233,27 @@ void Network :: collect( NetworkCtx * ctx ) const
 		layer->collectGradients( ctx->getLayerCtx( i ) );
 	}
 
-	if( gx_is_inner_debug ) {
-
-		Utils::printCtx( "collect", ctx->getLayerCtx() );
-	}
+	if( gx_is_inner_debug ) Utils::printCtx( "collect", ctx->getLayerCtx() );
 }
 
-bool Network :: backward( NetworkCtx * ctx, const DataVector & target ) const
+bool Network :: backward( NetworkContext * ctx, const DataVector & target ) const
 {
-	BaseLayerCtx * layerCtx = ctx->getLayerCtx().back();
+	BaseLayerContext * layerCtx = ctx->getLayerCtx().back();
 
-	const DataVector & lastOutput = layerCtx->getForwardCtx().getOutput();
+	const DataVector & lastOutput = layerCtx->getOutMS().data();
+
+	layerCtx->getDelta().resize( target.size() );
 
 	if( eMeanSquaredError == mLossFuncType ) {
-		layerCtx->getBackwardCtx().getDelta() = 2.0 * ( lastOutput - target );
+		layerCtx->getDelta() = 2.0 * ( lastOutput - target );
 	}
 
 	if( eCrossEntropy == mLossFuncType ) {
-		layerCtx->getBackwardCtx().getDelta() = lastOutput - target;
+		layerCtx->getDelta() = lastOutput - target;
 	}
 
 	for( ssize_t i = mLayers.size() - 1; i >= 0; i-- ) {
-		DataVector * inDelta = ( i > 0 ) ? &( ctx->getLayerCtx()[ i - 1 ]->getBackwardCtx().getDelta() ) : NULL;
+		DataVector * inDelta = ( i > 0 ) ? &( ctx->getLayerCtx()[ i - 1 ]->getDelta() ) : NULL;
 
 		BaseLayer * layer = mLayers[ i  ];
 
@@ -249,18 +263,20 @@ bool Network :: backward( NetworkCtx * ctx, const DataVector & target ) const
 	return true;
 }
 
-void Network :: initCtx( NetworkCtx * ctx ) const
+void Network :: initCtx( NetworkContext * ctx ) const
 {
-	BaseLayerCtx * layerCtx = NULL;
+	BaseLayerContext * layerCtx = NULL;
 
 	for( auto & layer : mLayers ) {
-		layerCtx = layer->createCtx( NULL == layerCtx ? NULL : ( & layerCtx->getForwardCtx().getOutput() ) );
+		layerCtx = layer->createCtx();
 		ctx->getLayerCtx().push_back( layerCtx );
 	}
 
-	for( size_t i = 0; i < mLayers.size(); i++ ) {
-		ctx->getBatchCtx().emplace_back(
-				new BackwardCtx( ctx->getLayerCtx( i )->getBackwardCtx() ) );
+	for( size_t i = 1; i < mLayers.size(); i++ ) {
+		BaseLayerContext * prev = ctx->getLayerCtx( i - 1 );
+		BaseLayerContext * curr = ctx->getLayerCtx( i );
+
+		curr->setInMS( &( prev->getOutRO() ) );
 	}
 }
 
@@ -283,40 +299,70 @@ DataType Network :: calcLoss( const DataVector & target, const DataVector & outp
 	return ret;
 }
 
-bool Network :: trainMiniBatch( NetworkCtx * ctx, DataType * totalLoss )
+bool Network :: trainMiniBatch( NetworkContext * ctx, DataType * totalLoss )
 {
-	for( size_t i = ctx->getChunkBegin(); i < ctx->getChunkEnd(); i++ ) {
+	const DataMatrix * input = std::get<0>( ctx->getTrainingData() );
+	Dims inDims = *( std::get<1>( ctx->getTrainingData() ) );
+	const DataMatrix * target = std::get<2>( ctx->getTrainingData() );
 
-		const DataVector & currInput = ctx->getInput()[ ctx->getIdxOfData()[ i ] ];
-		const DataVector & currTarget = ctx->getTarget()[ ctx->getIdxOfData()[ i ] ];
+	const IntVector * idxOfData = std::get<0>( ctx->getChunkInfo() );
+	size_t chunkBegin = std::get<1>( ctx->getChunkInfo() );
+	size_t chunkEnd = std::get<2>( ctx->getChunkInfo() );
 
-		ctx->getLayerCtx( 0 )->getForwardCtx().setInput( &currInput );
+	inDims.insert( inDims.begin(), chunkEnd - chunkBegin );
 
-		if( gx_is_inner_debug ) {
-			Utils::printVector( "input", currInput );
-			Utils::printVector( "target", currTarget );
-		}
+	ctx->getBatchInput().resize( gx_dims_flatten_size( inDims ) );
 
-		forward( ctx );
+	Dims targetDims = { inDims[ 0 ], ( *target )[ 0 ].size() };
 
-		backward( ctx, currTarget );
+	ctx->getBatchTarget().resize( gx_dims_flatten_size( targetDims ) );
 
-		collect( ctx );
+	DataType * inPtr = std::begin( ctx->getBatchInput() );
+	DataType * targetPtr = std::begin( ctx->getBatchTarget() );
 
-		ctx->addToBatch();
+	for( size_t i = chunkBegin; i < chunkEnd; i++ ) {
+		const DataVector & currInput = ( *input )[ ( *idxOfData )[ i ] ];
+		const DataVector & currTarget = ( *target )[ ( *idxOfData )[ i ] ];
 
-		DataType loss = calcLoss( currTarget, ctx->getLayerCtx().back()->getForwardCtx().getOutput() );
+		std::copy( std::begin( currInput ), std::end( currInput ), inPtr );
+		inPtr += currInput.size();
 
-		*totalLoss += loss;
+		std::copy( std::begin( currTarget ), std::end( currTarget ), targetPtr );
+		targetPtr += currTarget.size();
+	}
 
-		if( gx_is_inner_debug )  printf( "DEBUG: input #%ld loss %.8f totalLoss %.8f\n", i, loss, *totalLoss );
+	MDSpanRO inMS( ctx->getBatchInput(), inDims );
+
+	ctx->getLayerCtx( 0 )->setInMS( &inMS );
+
+	if( gx_is_inner_debug ) {
+		Utils::printMDSpan( "input", ctx->getLayerCtx( 0 )->getInMS() );
+		Utils::printVector( "target", ctx->getBatchTarget(), targetDims );
+	}
+
+	forward( ctx );
+
+	backward( ctx, ctx->getBatchTarget() );
+
+	collect( ctx );
+
+	ctx->addToBatch();
+
+	DataType loss = calcLoss( ctx->getBatchTarget(), ctx->getLayerCtx().back()->getOutMS().data() );
+
+	*totalLoss += loss;
+
+	loss /= inDims[ 0 ];
+
+	if( gx_is_inner_debug ) {
+		printf( "DEBUG: input #%ld loss %.8f totalLoss %.8f\n", chunkBegin, loss, *totalLoss );
 	}
 
 	return true;
 }
 
-bool Network :: trainInternal( const DataMatrix & input, const DataMatrix & target,
-		const CmdArgs_t & args, DataVector * losses )
+bool Network :: trainInternal( const DataMatrix & input, const Dims & inDims,
+		const DataMatrix & target, const CmdArgs_t & args, DataVector * losses )
 {
 	if( input.size() != target.size() ) return false;
 
@@ -333,11 +379,9 @@ bool Network :: trainInternal( const DataMatrix & input, const DataMatrix & targ
 	std::random_device rd;
 	std::mt19937 gen( rd() );
 
-	assert( mLayers[ 0 ]->getInputSize() == input[ 0 ].size() );
-
-	NetworkCtx ctx;
+	NetworkContext ctx;
 	initCtx( &ctx );
-	ctx.setTrainingData( &input, &target );
+	ctx.setTrainingData( TrainingData( &input, &inDims, &target ) );
 
 	std::unique_ptr< Optim > optim( Optim::SGD( args.mLearningRate, args.mLambda ) );
 
@@ -358,11 +402,11 @@ bool Network :: trainInternal( const DataMatrix & input, const DataMatrix & targ
 
 			ctx.clearBatch();
 
-			ctx.setChunk( &idxOfData, begin, end );
+			ctx.setChunkInfo( ChunkInfo( &idxOfData, begin, end ) );
 
 			trainMiniBatch( &ctx, &totalLoss );
 
-			if( gx_is_inner_debug ) Utils::printCtx( "batch", ctx.getBatchCtx() );
+			if( gx_is_inner_debug ) Utils::printCtx( "batch", ctx.getBatchBwdCtx() );
 
 			apply( &ctx, optim.get(), input.size(), end - begin );
 
@@ -392,12 +436,12 @@ bool Network :: trainInternal( const DataMatrix & input, const DataMatrix & targ
 	return true;
 }
 
-bool Network :: train( const DataMatrix & input, const DataMatrix & target,
+bool Network :: train( const DataMatrix & input, const Dims & inDims, const DataMatrix & target,
 		const CmdArgs_t & args, DataVector * losses )
 {
 	std::chrono::steady_clock::time_point beginTime = std::chrono::steady_clock::now();	
 
-	bool ret = trainInternal( input, target, args, losses );
+	bool ret = trainInternal( input, inDims, target, args, losses );
 
 	std::chrono::steady_clock::time_point endTime = std::chrono::steady_clock::now();	
 

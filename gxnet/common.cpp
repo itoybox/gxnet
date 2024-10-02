@@ -7,16 +7,16 @@ bool gx_is_inner_debug = false;
 
 stdx::element_aligned_tag Aligned = stdx::element_aligned;
 
-DataType gx_inner_product( const DataVector & a, const DataVector & b )
+DataType gx_inner_product( const DataType * a, const DataType * b, size_t count )
 {
 	DataType result = 0;
 
 #if 1
 	size_t idx = 0;
 
-	for( ; ( idx + 8 * DataSimd::size() - 1 ) < a.size(); idx += 8 * DataSimd::size() ) {
-		const DataType * pA = std::begin( a ) + idx;
-		const DataType * pB = std::begin( b ) + idx;
+	for( ; ( idx + 8 * DataSimd::size() - 1 ) < count; idx += 8 * DataSimd::size() ) {
+		const DataType * pA = a + idx;
+		const DataType * pB = b + idx;
 
 		DataSimd tA0( pA, Aligned );
 		tA0 *= DataSimd( pB, Aligned );
@@ -47,9 +47,9 @@ DataType gx_inner_product( const DataVector & a, const DataVector & b )
 		result += stdx::reduce( tA0, std::plus{} );
 	}
 
-	for( ; ( idx + 2 * DataSimd::size() - 1 ) < a.size(); idx += 2 * DataSimd::size() ) {
-		const DataType * pA = std::begin( a ) + idx;
-		const DataType * pB = std::begin( b ) + idx;
+	for( ; ( idx + 2 * DataSimd::size() - 1 ) < count; idx += 2 * DataSimd::size() ) {
+		const DataType * pA = a + idx;
+		const DataType * pB = b + idx;
 
 		DataSimd tA0( pA, Aligned );
 		tA0 *= DataSimd( pB, Aligned );
@@ -62,9 +62,9 @@ DataType gx_inner_product( const DataVector & a, const DataVector & b )
 		result += stdx::reduce( tA0, std::plus{} );
 	}
 
-	for( ; ( idx + DataSimd::size() - 1 ) < a.size(); idx += DataSimd::size() ) {
-		const DataType * pA = std::begin( a ) + idx;
-		const DataType * pB = std::begin( b ) + idx;
+	for( ; ( idx + DataSimd::size() - 1 ) < count; idx += DataSimd::size() ) {
+		const DataType * pA = a + idx;
+		const DataType * pB = b + idx;
 
 		DataSimd tA0( pA, Aligned );
 		tA0 *= DataSimd( pB, Aligned );
@@ -72,28 +72,28 @@ DataType gx_inner_product( const DataVector & a, const DataVector & b )
 		result += stdx::reduce( tA0, std::plus{} );
 	}
 
-	for( ; idx < a.size(); idx++ ) result += a[ idx ] * b[ idx ];
+	for( ; idx < count; idx++ ) result += a[ idx ] * b[ idx ];
 #else
 
-	result = std::transform_reduce( std::begin( a ), std::end( a ), std::begin( b ), 0.0 );
+	result = std::transform_reduce( a, a + count, b, 0.0 );
 
-	//for( size_t idx = 0; idx < a.size(); idx++ ) result += a[ idx ] * b[ idx ];
+	//for( size_t idx = 0; idx < count; idx++ ) result += a[ idx ] * b[ idx ];
 
 #endif
 
 	return result;
 }
 
-void gx_vs_product( const DataVector & a, const DataType & b, DataVector * c )
+void gx_vs_product( const DataType * a, const DataType & b, DataType * c, size_t count )
 {
 	size_t idx = 0;
 
 	DataVector temp( b, DataSimd::size() );
 	DataSimd tB( std::begin( temp ), Aligned );
 
-	for( ; ( idx + 8 * DataSimd::size() - 1 ) < a.size(); idx += 8 * DataSimd::size() ) {
-		const DataType * pA = std::begin( a ) + idx;
-		DataType * pC = std::begin( *c ) + idx;
+	for( ; ( idx + 8 * DataSimd::size() - 1 ) < count; idx += 8 * DataSimd::size() ) {
+		const DataType * pA = a + idx;
+		DataType * pC = c + idx;
 
 		DataSimd tA0 = tB * DataSimd( pA, Aligned );
 		tA0.copy_to( pC, Aligned );
@@ -120,9 +120,9 @@ void gx_vs_product( const DataVector & a, const DataType & b, DataVector * c )
 		tA7.copy_to( pC + 7 * DataSimd::size(), Aligned );
 	}
 
-	for( ; ( idx + 2 * DataSimd::size() - 1 ) < a.size(); idx += 2 * DataSimd::size() ) {
-		const DataType * pA = std::begin( a ) + idx;
-		DataType * pC = std::begin( *c ) + idx;
+	for( ; ( idx + 2 * DataSimd::size() - 1 ) < count; idx += 2 * DataSimd::size() ) {
+		const DataType * pA = a + idx;
+		DataType * pC = c + idx;
 
 		DataSimd tA0 = tB * DataSimd( pA, Aligned );
 		tA0.copy_to( pC, Aligned );
@@ -131,18 +131,17 @@ void gx_vs_product( const DataVector & a, const DataType & b, DataVector * c )
 		tA1.copy_to( pC + DataSimd::size(), Aligned );
 	}
 
-	for( ; ( idx + DataSimd::size() - 1 ) < a.size(); idx += DataSimd::size() ) {
-		const DataType * pA = std::begin( a ) + idx;
-		DataType * pC = std::begin( *c ) + idx;
+	for( ; ( idx + DataSimd::size() - 1 ) < count; idx += DataSimd::size() ) {
+		const DataType * pA = a + idx;
+		DataType * pC = c + idx;
 
 		DataSimd tA0 = tB * DataSimd( pA, Aligned );
 
 		tA0.copy_to( pC, Aligned );
 	}
 
-	for( ; idx < a.size(); idx++ ) ( *c )[ idx ] = b * a[ idx ];
+	for( ; idx < count; idx++ ) c[ idx ] = b * a[ idx ];
 }
-
 
 }; // namespace gxnet;
 

@@ -16,7 +16,9 @@ void check( const char * tag, Network & network, DataVector & input, DataVector 
 
 	DataVector output;
 
-	bool ret = network.forward( input, &output );
+	Dims inDims = { input.size() };
+
+	bool ret = network.forward( input, inDims, &output );
 
 	printf( "forward %d, input { %ld }, output { %ld }\n", ret, input.size(), output.size() );
 	for( auto & i : output ) printf( "\t%.8f ", i );
@@ -129,7 +131,9 @@ void testNetwork()
 		.mIsShuffle = false
 	};
 
-	network.train( input, target, args );
+	Dims inDims = { input[ 0 ].size() };
+
+	network.train( input, inDims, target, args );
 
 	check( "after train", network, input[ 0 ], target[ 0 ] );
 

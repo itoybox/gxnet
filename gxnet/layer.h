@@ -9,8 +9,8 @@
 namespace gxnet {
 
 class BaseLayer;
-class BaseLayerCtx;
-class BackwardCtx;
+class BaseLayerContext;
+class BackwardContext;
 
 typedef std::vector< BaseLayer * > BaseLayerPtrVector;
 
@@ -26,41 +26,33 @@ public:
 
 	virtual ~BaseLayer();
 
-	virtual void collectGradients( BaseLayerCtx * ctx ) const;
+	virtual void collectGradients( BaseLayerContext * ctx ) const;
 
-	virtual void applyGradients( BackwardCtx * ctx, Optim * optim,
+	virtual void applyGradients( BackwardContext * ctx, Optim * optim,
 			size_t trainingCount, size_t miniBatchCount );
 
 public:
 
 	virtual void print( bool isDetail = false ) const;
 
-	void forward( BaseLayerCtx * ctx ) const;
+	void forward( BaseLayerContext * ctx ) const;
 
-	void backward( BaseLayerCtx * ctx, DataVector * inDelta ) const;
+	void backward( BaseLayerContext * ctx, DataVector * inDelta ) const;
 
-	BaseLayerCtx * createCtx( const DataVector * input ) const;
+	BaseLayerContext * createCtx() const;
 
 protected:
 
 	virtual void printWeights( bool isDetail ) const = 0;
 
-	virtual BaseLayerCtx * newCtx( const DataVector * input ) const = 0;
+	virtual BaseLayerContext * newCtx() const = 0;
 
-	virtual void calcOutput( BaseLayerCtx * ctx ) const = 0;
+	virtual void calcOutput( BaseLayerContext * ctx ) const = 0;
 
-	virtual void backpropagate( BaseLayerCtx * ctx, DataVector * inDelta ) const = 0;
+	virtual void backpropagate( BaseLayerContext * ctx, DataVector * inDelta ) const = 0;
 
 public:
 	int getType() const;
-
-	const Dims & getInputDims() const;
-
-	const size_t getInputSize() const;
-
-	const Dims & getOutputDims() const;
-
-	const size_t getOutputSize() const;
 
 	void setActFunc( ActFunc * actFunc );
 
@@ -69,7 +61,6 @@ public:
 	void setTraining( bool isTraining );
 
 protected:
-	Dims mInputDims, mOutputDims;
 	int mType;
 	bool mIsTraining;
 
@@ -78,7 +69,7 @@ protected:
 
 class FullConnLayer : public BaseLayer {
 public:
-	FullConnLayer( const Dims & inputDims, size_t neuronCount );
+	FullConnLayer( size_t neuronCount, size_t inSize );
 
 	~FullConnLayer();
 
@@ -89,20 +80,20 @@ public:
 
 	const DataVector & getBiases() const;
 
-	virtual void collectGradients( BaseLayerCtx * ctx ) const;
+	virtual void collectGradients( BaseLayerContext * ctx ) const;
 
-	virtual void applyGradients( BackwardCtx * ctx, Optim * optim,
+	virtual void applyGradients( BackwardContext * ctx, Optim * optim,
 			size_t trainingCount, size_t miniBatchCount );
 
 protected:
 
 	virtual void printWeights( bool isDetail ) const;
 
-	virtual BaseLayerCtx * newCtx( const DataVector * input ) const;
+	virtual BaseLayerContext * newCtx() const;
 
-	virtual void calcOutput( BaseLayerCtx * ctx ) const;
+	virtual void calcOutput( BaseLayerContext * ctx ) const;
 
-	virtual void backpropagate( BaseLayerCtx * ctx, DataVector * inDelta ) const;
+	virtual void backpropagate( BaseLayerContext * ctx, DataVector * inDelta ) const;
 
 private:
 	DataMatrix mWeights;

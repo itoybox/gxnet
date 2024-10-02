@@ -4,7 +4,8 @@
 
 namespace gxnet {
 
-void gx_eval( const char * tag, Network & network, DataMatrix & input, DataMatrix & target )
+void gx_eval( const char * tag, Network & network, DataMatrix & input,
+		const Dims & inDims, DataMatrix & target )
 {
 	printf( "%s( %s, ..., input { %ld }, target { %ld } )\n", __func__, tag, input.size(), target.size() );
 
@@ -25,7 +26,7 @@ void gx_eval( const char * tag, Network & network, DataMatrix & input, DataMatri
 
 		DataVector output;
 
-		bool ret = network.forward( input[ i ], &output );
+		bool ret = network.forward( input[ i ], inDims, &output );
 
 		if( ! ret ) {
 			printf( "forward fail\n" );

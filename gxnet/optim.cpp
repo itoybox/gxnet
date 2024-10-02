@@ -1,7 +1,7 @@
 
 #include "optim.h"
 
-//#include <execution>
+#include <execution>
 
 namespace gxnet {
 
@@ -53,16 +53,18 @@ void SGD :: update( DataVector * weights, const DataVector & gradients,
 	DataVector tmpGrad = gradients;
 
 	if( gx_is_inner_debug ) {
-		gx_vs_product( tmpGrad, mLR, &tmpGrad );
+		gx_vs_product( std::begin( tmpGrad ), mLR, std::begin( tmpGrad ), tmpGrad.size() );
 	} else {
-		gx_vs_product( *weights, ( 1.0 - mLR * mLambda / trainingCount ), weights );
-		gx_vs_product( tmpGrad, mLR / miniBatchCount, &tmpGrad );
+		gx_vs_product( std::begin( *weights ), ( 1.0 - mLR * mLambda / trainingCount ),
+				std::begin( *weights ), weights->size() );
+		gx_vs_product( std::begin( tmpGrad ), mLR / miniBatchCount,
+				std::begin( tmpGrad ), tmpGrad.size() );
 	}
 
-	*weights -= tmpGrad;
+	//*weights -= tmpGrad;
 
-	//std::transform( std::execution::par, std::begin( *weights ), std::end( *weights ),
-			///std::begin( tmpGrad ), std::begin( *weights ), std::minus{} );
+	std::transform( std::begin( *weights ), std::end( *weights ),
+			std::begin( tmpGrad ), std::begin( *weights ), std::minus{} );
 }
 
 void SGD :: updateBiases( DataVector * bias, const DataVector & delta,

@@ -6,51 +6,68 @@
 #include "optim.h"
 #include "utils.h"
 
+#include <tuple>
+
 namespace gxnet {
 
 class Network;
 
 typedef void ( * OnEpochEnd_t )( Network & network, int epoch, DataType loss );
 
-class NetworkCtx {
+typedef std::tuple<
+			const DataMatrix * /* input */,
+			const Dims *       /* inDims */,
+			const DataMatrix * /* target */
+		> TrainingData;
+
+typedef std::tuple<
+			const IntVector * /* idxOfData */,
+			size_t            /* chunkBegin */,
+			size_t            /* chunkEnd */
+		> ChunkInfo;
+
+class NetworkContext {
 public:
-	NetworkCtx();
-	~NetworkCtx();
+	NetworkContext();
+	~NetworkContext();
 
-	void setTrainingData( const DataMatrix * input, const DataMatrix * target );
+	// training data related methods
+	void setTrainingData( const TrainingData & data );
 
-	const DataMatrix & getInput();
+	const TrainingData & getTrainingData();
 
-	const DataMatrix & getTarget();
+	// chunk related methods
+	void setChunkInfo( const ChunkInfo & info );
 
-	void setChunk( const IntVector * idxOfData, size_t begin, size_t end );
+	const ChunkInfo & getChunkInfo();
 
-	const IntVector & getIdxOfData();
+	// layer context
+	BaseLayerContext * getLayerCtx( size_t index );
 
-	size_t getChunkBegin();
+	BaseLayerContextPtrVector & getLayerCtx();
 
-	size_t getChunkEnd();
+	// mini batch workspace
+	DataVector & getBatchInput();
 
-	BaseLayerCtx * getLayerCtx( size_t index );
+	DataVector & getBatchTarget();
 
-	BaseLayerCtxPtrVector & getLayerCtx();
+	// mini batch backward context
+	BackwardContext * getBatchBwdCtx( size_t index );
 
-	BackwardCtx * getBatchCtx( size_t index );
-
-	BackwardCtxPtrVector & getBatchCtx();
+	BackwardContextPtrVector & getBatchBwdCtx();
 
 	void clearBatch();
 
 	void addToBatch();
 
 private:
-	BaseLayerCtxPtrVector mLayerCtx;
-	BackwardCtxPtrVector mBatchCtx;
+	BaseLayerContextPtrVector mLayerCtx;
+	BackwardContextPtrVector mBatchBwdCtx;
 
-	const DataMatrix * mInput, * mTarget;
+	TrainingData mTrainingData;
+	ChunkInfo mChunkInfo;
 
-	const IntVector * mIdxOfData;
-	size_t mChunkBegin, mChunkEnd;
+	DataVector mBatchInput, mBatchTarget;
 };
 
 class Network {
@@ -74,31 +91,34 @@ public:
 
 	const BaseLayerPtrVector & getLayers() const;
 
-	void initCtx( NetworkCtx * ctx ) const;
+	void initCtx( NetworkContext * ctx ) const;
 
-	bool forward( const DataVector & input, DataVector * output ) const;
+	bool forward( const DataVector & input, const Dims & inDims,
+			DataVector * output ) const;
 
-	bool train( const DataMatrix & input, const DataMatrix & target,
-			const CmdArgs_t & args, DataVector * losses = nullptr );
+	bool train( const DataMatrix & input, const Dims & inDims,
+			const DataMatrix & target, const CmdArgs_t & args,
+			DataVector * losses = nullptr );
 
 	void print( bool isDetail = false ) const;
 
-	bool trainMiniBatch( NetworkCtx * ctx, DataType * totalLoss );
+	bool trainMiniBatch( NetworkContext * ctx, DataType * totalLoss );
 
 private:
 
-	bool forward( NetworkCtx * ctx ) const;
+	bool forward( NetworkContext * ctx ) const;
 
-	bool backward( NetworkCtx * ctx, const DataVector & target ) const;
+	bool backward( NetworkContext * ctx, const DataVector & target ) const;
 
-	void collect( NetworkCtx * ctx ) const;
+	void collect( NetworkContext * ctx ) const;
 
-	bool apply( NetworkCtx * ctx, Optim * optim, size_t trainingCount, size_t miniBatchCount );
+	bool apply( NetworkContext * ctx, Optim * optim, size_t trainingCount, size_t miniBatchCount );
 
 	DataType calcLoss( const DataVector & target, const DataVector & output );
 
-	bool trainInternal( const DataMatrix & input, const DataMatrix & target,
-			const CmdArgs_t & args, DataVector * losses = nullptr );
+	bool trainInternal( const DataMatrix & input, const Dims & inDims,
+			const DataMatrix & target, const CmdArgs_t & args,
+			DataVector * losses = nullptr );
 
 private:
 	OnEpochEnd_t mOnEpochEnd;
@@ -106,7 +126,6 @@ private:
 	BaseLayerPtrVector mLayers;
 	bool mIsTraining;
 };
-
 
 }; // namespace gxnet;
 

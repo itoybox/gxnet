@@ -6,36 +6,17 @@
 
 namespace gxnet {
 
-class BaseLayerCtx;
-typedef std::vector< BaseLayerCtx * > BaseLayerCtxPtrVector;
+class BaseLayerContext;
+typedef std::vector< BaseLayerContext * > BaseLayerContextPtrVector;
 
-class BackwardCtx;
-typedef std::vector< BackwardCtx * > BackwardCtxPtrVector;
+class BackwardContext;
+typedef std::vector< BackwardContext * > BackwardContextPtrVector;
 
-class ForwardCtx {
+class BackwardContext {
 public:
-	ForwardCtx( const DataVector * input );
+	BackwardContext();
 
-	virtual ~ForwardCtx();
-
-	void setInput( const DataVector * input );
-
-	const DataVector & getInput();
-
-	DataVector & getOutput();
-
-private:
-	const DataVector * mInput;
-	DataVector mOutput;
-};
-
-class BackwardCtx {
-public:
-	BackwardCtx();
-
-	BackwardCtx( const BackwardCtx & other );
-
-	~BackwardCtx();
+	virtual ~BackwardContext();
 
 	DataVector & getDelta();
 
@@ -45,24 +26,47 @@ public:
 
 	const DataMatrix & getGradients() const;
 
-private:
+protected:
 	DataVector mDelta;
 	DataMatrix mGradients;
 };
 
-class BaseLayerCtx {
+class BaseLayerContext : public BackwardContext {
 public:
-	BaseLayerCtx( const DataVector * input );
+	BaseLayerContext();
 
-	virtual ~BaseLayerCtx();
+	virtual ~BaseLayerContext();
 
-	ForwardCtx & getForwardCtx();
+	void setInMS( const MDSpanRO * inMS );
 
-	BackwardCtx & getBackwardCtx();
+	const MDSpanRO & getInMS();
 
-private:
-	ForwardCtx mForwardCtx;
-	BackwardCtx mBackwardCtx;
+	MDSpanRW & getOutMS();
+
+	const MDSpanRO & getOutRO();
+
+protected:
+	const MDSpanRO * mInMS;
+
+	MDSpanRW mOutMS;
+
+	MDSpanRO mOutRO;
+
+	DataVector mOutput;
+};
+
+class FullConnLayerContext : public BaseLayerContext {
+public:
+	FullConnLayerContext();
+
+	virtual ~FullConnLayerContext();
+
+	DataVector & getTempWeights();
+
+	DataVector & getTempGradients();
+
+protected:
+	DataVector mTempWeights, mTempGradients;
 };
 
 }; // namespace gxnet;
