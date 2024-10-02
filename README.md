@@ -2,7 +2,7 @@
 
 一个玩具级的神经网络训练框架，用于自学神经网络基础知识
 
-[![Build Status](https://github.com/liusifan/gxnet/actions/workflows/c-cpp.yml/badge.svg)](https://github.com/liusifan/gxnet/actions?query=workflow:ci)
+[![Build Status](https://github.com/itoybox/gxnet/actions/workflows/c-cpp.yml/badge.svg)](https://github.com/liusifan/gxnet/actions?query=workflow:ci)
 
 编译和运行
 --------
@@ -40,7 +40,7 @@ sh launch_mnist.sh
 ## 努力通过 UAT(User Acceptance Test) 测试
 在 MNIST 测试集上达到 95% 准确率之后，就想拿现写的数字来试试。请家里的小朋友帮忙写了一些数字（[uat/ian](gxnet/uat/ian)），小朋友很有创意，坚持要用彩色笔来写，而且尽量每个数字用不同的颜色。模型准确率到了 95%，现写的数字也很工整，本以为 UAT 测试应该手到擒来，哪知道准确率居然一半都不到。用几个周末尝试了几种数据增强方案（把训练数据做图片居中和旋转（[trans_mnist.py](gxnet/trans_mnist.py)）），还是不能全部识别出来。最后在这个周末向一个计算机视觉方面的专家请教之后，终于发现问题就出在这个彩色笔上面，:(。
 
-原因在于：1）这里使用的是一个简单的全连接神经网络，这个神经网络本质上并不能识别图片的形状，它其实只是对输入数据的统计特征进行识别；2)MNIST 数据集是黑白图片，而且非常黑白分明；而之前对彩色数字图片的处理，只是简单地把图片变成灰度图，不够黑白分明，生成的灰度图和 MNIST 的数据集不是同样的数据分布，相当于违反了这个模型的假设，因此识别准确率就低。知道问题之后，解决起来就比较简单了，在对 UAT 图片预处理的时候，对于非白色部分一律置成黑色（[conv2mnist.py](gxnet/conv2mnist.py)），加了这个之后彩色图片就全部识别出来了。
+原因在于：1）这里使用的是一个简单的全连接神经网络（复制 NNDL 书上的 2 层网络，第一层 30 个神经元，第二层 10 个神经元），这个神经网络本质上并不能识别图片的形状，它其实只是对输入数据的统计特征进行识别；2)MNIST 数据集是黑白图片，而且非常黑白分明；而之前对彩色数字图片的处理，只是简单地把图片变成灰度图，不够黑白分明，生成的灰度图和 MNIST 的数据集不是同样的数据分布，相当于违反了这个模型的假设，因此识别准确率就低。知道问题之后，解决起来就比较简单了，在对 UAT 图片预处理的时候，对于非白色部分一律置成黑色（[conv2mnist.py](gxnet/conv2mnist.py)），加了这个之后彩色图片就全部识别出来了。
 
 ## 优化训练耗时
 在前面几个阶段，每次调试需要的时间不需要很长；即使在第三阶段用了 6 万张 MNIST 图片做训练，每个 epoch 需要 76 秒，勉强可以接受。但在第四阶段，为了能通过 UAT 测试，做了数据增强，把 6 万张图片，扩增成 22 万张（首先把图片做 ( -15, 15 ) 角度的随机旋转生成 6 万张；其次对一共 12 万张图片做居中处理，但有些图片已经居中，因此最终生成新的 10 万张居中的图片），每个 epoch 的时间上涨到 860 秒，这就太影响效率了。因此在通过 UAT 的测试案例之后，就想把代码的执行性能提升一下。第一步是简单地在编译参数加上 -O3，没想到有奇效，每个 epoch 的耗时下降到了 58 秒，看来 -O3 对于计算密集型代码有奇效。第二步用苹果 xcode 的 cpu profiler 做分析，看到的结果是在最内层计算每条训练数据梯度的时候，有一个用于临时保存梯度的 matrix 被反复创建，占用了程序执行时间的一半；找到问题之后，改起来就不难了，把这个 matrix，还有连带的其他几个类似的 matrix/vector 一起移到所有循环之外进行初始化，相应用到的地方做一些小的调整就可以了；改完之后，每个 epoch 的耗时下降到 30 秒。这个耗时目前可以接受。
@@ -48,7 +48,9 @@ sh launch_mnist.sh
 还有一点，就是用 [std::valarray](https://en.cppreference.com/w/cpp/numeric/valarray) 替代了 std::vector，在部分合适的场景下，用 valarray 的批量计算能力可以提升性能。
 
 ## 继续优化训练耗时
-接下来想继续为这个项目增加新的功能，为了减少开发调试的时间，要进一步优化耗时。在不使用 GPU 的情况下，常见的耗时优化是使用 SIMD 指令，在各个 CPU 平台都有相应的支持；更好的是 C++ 的 std 库里面做了封装，可以直接跨平台。
+最初的实现一板一眼照着书上的 Neuron/Layer/Network 的概念来设计具体的实现，但这种做法导致计算分散到每个 Neuron 中，很多计算无法做批量处理。试着去掉 Neuron，保留 Layer/Network，forward/backward 的计算都在 Layer 这一层完成。没想到这么修改之后，在性能上有很大好处，原来要分散到各个 Neuron 去做的计算，现在在 Layer 层可以做批处理。针对批处理，在不使用 GPU 的情况下，常见的耗时优化是使用 SIMD 指令，在各个 CPU 平台都有相应的支持；更好的是 C++ 的 std 库里面做了封装（[std::experimental::simd](https://en.cppreference.com/w/cpp/experimental/simd/simd))，可以直接跨平台。在做了以上两个优化之后，每个 epoch 的耗时下降到了 6 秒，训练耗时有了极大的改善。项目在这里打了一个 [v0.1](/../../../gxnet/releases/tag/v0.1) 的 tag 。
+
+由于批处理对性能有极大的提升，因此进一步考虑针对 minibatch 做批处理。之前的 minibatch 并不是批处理，而是针对一个 minibatch 中的每条数据做一次 forward/backward，然后收集累加 gradients，最后再更新 weights。现在改成把一个 minibatch 的数据复制聚合到连续的内存中，在每个 Layer 中也假设传递进来的数据是包含多条数据的。经过这个优化之后，每个 epoch 的耗时进一步下降到 4 秒。项目在这里打了一个 [v0.2](/../../../gxnet/releases/tag/v0.2) 的 tag 。
 
 [to be continued]
 
