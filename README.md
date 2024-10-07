@@ -38,7 +38,7 @@ sh launch_mnist.sh
 然后就开始搞 MNIST 数据集。一开始以为 seeds demo 能跑成功，MNIST 也自然不在话下，哪知一上来也是啪啪打脸，也是在训练之后在测试集上的准确率没有提升，反而还下降。再次进入懵逼状态。这里整整耗了一个周末没有任何进展，一度想暂时放弃了。中间再次怀疑训练框架实现的正确性，想拿书上的 Python 代码和 C++ 代码用同样的 weights 和 biases 初始化，再去对比中间结果，不过不熟悉 Python 的矩阵库，最终作罢。在做了好多无效的尝试之后，重新回去看书，然后看到书中对于 weights 和 biases 的初始化提到用了均值为 0，标准差为 1 的高斯分布的随机数；在修改几行代码之后，终于把 MNIST 跑通了。
 
 ## 努力通过 UAT(User Acceptance Test) 测试
-在 MNIST 测试集上达到 95% 准确率之后，就想拿现写的数字来试试。请家里的小朋友帮忙写了一些数字（[uat/ian](gxnet/uat/ian)），小朋友很有创意，坚持要用彩色笔来写，而且尽量每个数字用不同的颜色。模型准确率到了 95%，现写的数字也很工整，本以为 UAT 测试应该手到擒来，哪知道准确率居然一半都不到。用几个周末尝试了几种数据增强方案（把训练数据做图片居中和旋转（[trans_mnist.py](gxnet/trans_mnist.py)）），还是不能全部识别出来。最后在这个周末向一个计算机视觉方面的专家请教之后，终于发现问题就出在这个彩色笔上面，:(。
+在 MNIST 测试集上达到 95% 准确率之后，就想拿现写的数字来试试。请家里的小朋友帮忙写了一些数字（[uat/digits/ian](gxnet/uat/digits/ian)），小朋友很有创意，坚持要用彩色笔来写，而且尽量每个数字用不同的颜色。模型准确率到了 95%，现写的数字也很工整，本以为 UAT 测试应该手到擒来，哪知道准确率居然一半都不到。用几个周末尝试了几种数据增强方案（把训练数据做图片居中和旋转（[trans_mnist.py](gxnet/trans_mnist.py)）），还是不能全部识别出来。最后在这个周末向一个计算机视觉方面的专家请教之后，终于发现问题就出在这个彩色笔上面，:(。
 
 原因在于：1）这里使用的是一个简单的全连接神经网络（复制 NNDL 书上的 2 层网络，第一层 30 个神经元，第二层 10 个神经元），这个神经网络本质上并不能识别图片的形状，它其实只是对输入数据的统计特征进行识别；2)MNIST 数据集是黑白图片，而且非常黑白分明；而之前对彩色数字图片的处理，只是简单地把图片变成灰度图，不够黑白分明，生成的灰度图和 MNIST 的数据集不是同样的数据分布，相当于违反了这个模型的假设，因此识别准确率就低。知道问题之后，解决起来就比较简单了，在对 UAT 图片预处理的时候，对于非白色部分一律置成黑色（[conv2mnist.py](gxnet/conv2mnist.py)），加了这个之后彩色图片就全部识别出来了。
 
@@ -51,6 +51,29 @@ sh launch_mnist.sh
 最初的实现一板一眼照着书上的 Neuron/Layer/Network 的概念来设计具体的实现，但这种做法导致计算分散到每个 Neuron 中，很多计算无法做批量处理。试着去掉 Neuron，保留 Layer/Network，forward/backward 的计算都在 Layer 这一层完成。没想到这么修改之后，在性能上有很大好处，原来要分散到各个 Neuron 去做的计算，现在在 Layer 层可以做批处理。针对批处理，在不使用 GPU 的情况下，常见的耗时优化是使用 SIMD 指令，在各个 CPU 平台都有相应的支持；更好的是 C++ 的 std 库里面做了封装（[std::experimental::simd](https://en.cppreference.com/w/cpp/experimental/simd/simd))，可以直接跨平台。在做了以上两个优化之后，每个 epoch 的耗时下降到了 6 秒，训练耗时有了极大的改善。项目在这里打了一个 [v0.1](/../../../gxnet/releases/tag/v0.1) 的 tag 。
 
 由于批处理对性能有极大的提升，因此进一步考虑针对 minibatch 做批处理。之前的 minibatch 并不是批处理，而是针对一个 minibatch 中的每条数据做一次 forward/backward，然后收集累加 gradients，最后再更新 weights。现在改成把一个 minibatch 的数据复制聚合到连续的内存中，在每个 Layer 中也假设传递进来的数据是包含多条数据的。经过这个优化之后，每个 epoch 的耗时进一步下降到 4 秒。项目在这里打了一个 [v0.2](/../../../gxnet/releases/tag/v0.2) 的 tag 。
+
+
+## 尝试识别手写字母
+想进一步尝试 [EMNIST](https://www.nist.gov/itl/products-and-services/emnist-dataset) 数据集，里面包含了英文字母和数字，只使用全连接层效果很差，因此需要用卷积神经网络来实现。实现过程中，遇到以下几个问题
+
+1. 正确性验证
+
+   这次使用 [pytorch](pytorch/testconv.py) 来作为参考对照；
+
+2. Layer/Context/Network 的分层设计
+
+   前面做全连接层性能优化的时候，做好了分层设计，增加 CNN 相关的 Conv/Pool/Dropout Layer 比较方便；
+
+3. 多维数组的操作
+   借鉴 C++23 里面的 [std::mdspan](https://en.cppreference.com/w/cpp/container/mdspan) 把一维数组映射为多维数组（没有直接使用 mdspan，因为看起来 std 的实现太复杂了）；
+
+4. 针对 CNN 的性能优化
+
+   最开始是先用最直白的方式实现 Conv 操作，testemnist 每个 epoch 需要 100 多秒；搜索了一圈，发现有各种加速 Conv 的优化算法，最后选择了比较容易实现的 im2rows 算法；优化之后每个 epoch 需要 50 秒左右；下一步还要继续优化。
+
+5. 优化数据集
+
+   EMNIST 数据集的数据太杂乱，gxnet 这个玩具级的框架缺乏很多功能，无法处理这么杂乱的数据。因此找到了 [handwritten-alphabets dataset](https://www.kaggle.com/datasets/sachinpatel21/az-handwritten-alphabets-in-csv-format/data) 数据集，这个数据集干净很多；写了两个脚本对原始数据集进行处理，转换成常见的 MNIST train/test 格式。
 
 [to be continued]
 

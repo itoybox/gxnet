@@ -63,17 +63,13 @@ int test( const char * model, const char * file )
 
 	if( ! Utils::load( model, &network ) ) return -1;
 
-#if 0
-	if( input.size() < network.getLayers()[ 0 ]->getInputSize() ) {
+	if( input.size() < network.getLayers()[ 0 ]->getBaseInSize() ) {
 		DataVector newInput;
 		Utils::expandMnistImage( input, &newInput );
 		input = newInput;
 	}
-#endif
 
-	Dims inDims = { 28, 28 };
-
-	bool ret = network.forward( input, inDims, &output );
+	bool ret = network.forward( input, &output );
 
 	if( ! ret ) {
 		printf( "forward fail\n" );
@@ -120,15 +116,13 @@ int eval( const char * model, const char * images, const char * labels )
 
 	for( size_t i = 0; i < input.size(); i++ ) {
 
-#if 0
-		if( input[ i ].size() < network.getLayers()[ 0 ]->getInputSize() ) {
+		if( input[ i ].size() < network.getLayers()[ 0 ]->getBaseInSize() ) {
 			DataVector newInput;
 			Utils::expandMnistImage( input[ i ], &newInput );
 			input[ i ] = newInput;
 		}
-#endif
 
-		bool ret = network.forward( input[ i ], inDims, &output );
+		bool ret = network.forward( input[ i ], &output );
 
 		if( ! ret ) {
 			printf( "forward fail\n" );

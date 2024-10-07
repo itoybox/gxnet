@@ -16,9 +16,7 @@ void check( const char * tag, Network & network, DataVector & input, DataVector 
 
 	DataVector output;
 
-	Dims inDims = { input.size() };
-
-	bool ret = network.forward( input, inDims, &output );
+	bool ret = network.forward( input, &output );
 
 	printf( "forward %d, input { %ld }, output { %ld }\n", ret, input.size(), output.size() );
 	for( auto & i : output ) printf( "\t%.8f ", i );
@@ -104,16 +102,18 @@ void testNetwork()
 
 	DataType learningRate = 0.5;
 
+	Dims baseInDims = { 2 };
+
 	Network network( Network::eMeanSquaredError );
 	{
 		FullConnLayer * layer = NULL;
 
-		layer = new FullConnLayer( { 2 }, 2 );
+		layer = new FullConnLayer( baseInDims, 2 );
 		layer->setWeights( v, b );
 		layer->setActFunc( ActFunc::sigmoid() );
 		network.addLayer( layer );
 
-		layer = new FullConnLayer( { 2 }, 2 );
+		layer = new FullConnLayer( layer->getBaseOutDims(), 2 );
 		layer->setWeights( w, b );
 		layer->setActFunc( ActFunc::sigmoid() );
 		network.addLayer( layer );
@@ -131,9 +131,7 @@ void testNetwork()
 		.mIsShuffle = false
 	};
 
-	Dims inDims = { input[ 0 ].size() };
-
-	network.train( input, inDims, target, args );
+	network.train( input, target, args );
 
 	check( "after train", network, input[ 0 ], target[ 0 ] );
 

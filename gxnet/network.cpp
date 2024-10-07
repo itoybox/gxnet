@@ -78,7 +78,7 @@ void NetworkContext :: clearBatch()
 {
 	for( auto & ctx : mBatchBwdCtx ) {
 		for( auto & vec : ctx->getGradients() ) vec = 0.0;
-		ctx->getDelta() = 0.0;
+		ctx->getDeltaMS().data() = 0.0;
 	}
 }
 
@@ -88,8 +88,10 @@ void NetworkContext :: addToBatch()
 		for( size_t i = 0; i < mLayerCtx.size(); i++ ) {
 			mBatchBwdCtx.emplace_back( new BackwardContext() );
 
-			Dims & outDims = mLayerCtx[ i ]->getOutMS().dims();
-			mBatchBwdCtx[ i ]->getDelta().resize( gx_dims_flatten_size( outDims ) / outDims[ 0 ] );
+			Dims outDims = mLayerCtx[ i ]->getOutMS().dims();
+			outDims[ 0 ] = 1;
+			mBatchBwdCtx[ i ]->getDeltaMS().dims() = outDims;
+			mBatchBwdCtx[ i ]->getDeltaMS().data().resize( gx_dims_flatten_size( outDims ) );
 
 			for( auto & item : mLayerCtx[ i ]->getGradients() ) {
 				mBatchBwdCtx[ i ]->getGradients().emplace_back( DataVector( item.size() ) );
@@ -98,10 +100,10 @@ void NetworkContext :: addToBatch()
 	}
 
 	for( size_t i = 0; i < mBatchBwdCtx.size(); i++ ) {
-		DataVector & delta = mBatchBwdCtx[ i ]->getDelta();
+		DataVector & delta = mBatchBwdCtx[ i ]->getDeltaMS().data();
 
-		size_t total = mLayerCtx[ i ]->getDelta().size();
-		DataType * deltaPtr = std::begin( mLayerCtx[ i ]->getDelta() );
+		size_t total = mLayerCtx[ i ]->getDeltaRO().data().size();
+		const DataType * deltaPtr = std::begin( mLayerCtx[ i ]->getDeltaRO().data() );
 		for( size_t index = 0; index < total; index += delta.size(), deltaPtr += delta.size() ) {
 			std::transform( deltaPtr, deltaPtr + delta.size(),
 					std::begin( delta ), std::begin( delta ), std::plus<DataType>() );
@@ -185,13 +187,16 @@ void Network :: addLayer( BaseLayer * layer )
 	mLayers.emplace_back( layer );
 }
 
-bool Network :: forward( const DataVector & input, const Dims & inDims,
-		DataVector * output ) const
+bool Network :: forward( const DataVector & input, DataVector * output ) const
 {
 	NetworkContext ctx;
 	initCtx( &ctx );
 
-	MDSpanRO inMS( input, inDims );
+	Dims dims = mLayers[ 0 ]->getBaseInDims();
+
+	dims.insert( dims.begin(), 1 );
+
+	MDSpanRO inMS( input, dims );
 	ctx.getLayerCtx( 0 )->setInMS( &inMS );
 
 	bool ret = forward( &ctx );
@@ -219,7 +224,7 @@ bool Network :: apply( NetworkContext * ctx, Optim * optim,
 {
 	for( size_t i = 0; i < mLayers.size(); i++ ) {
 		BaseLayer * layer = mLayers[ i ];
-		layer->applyGradients( ctx->getBatchBwdCtx( i ), optim, trainingCount, miniBatchCount );
+		layer->applyGradients( *( ctx->getBatchBwdCtx( i ) ), optim, trainingCount, miniBatchCount );
 	}
 
 	return true;
@@ -242,18 +247,18 @@ bool Network :: backward( NetworkContext * ctx, const DataVector & target ) cons
 
 	const DataVector & lastOutput = layerCtx->getOutMS().data();
 
-	layerCtx->getDelta().resize( target.size() );
+	assert( layerCtx->getDeltaRO().data().size() == target.size() );
 
 	if( eMeanSquaredError == mLossFuncType ) {
-		layerCtx->getDelta() = 2.0 * ( lastOutput - target );
+		layerCtx->getDeltaMS().data() = 2.0 * ( lastOutput - target );
 	}
 
 	if( eCrossEntropy == mLossFuncType ) {
-		layerCtx->getDelta() = lastOutput - target;
+		layerCtx->getDeltaMS().data() = lastOutput - target;
 	}
 
 	for( ssize_t i = mLayers.size() - 1; i >= 0; i-- ) {
-		DataVector * inDelta = ( i > 0 ) ? &( ctx->getLayerCtx()[ i - 1 ]->getDelta() ) : NULL;
+		DataVector * inDelta = ( i > 0 ) ? &( ctx->getLayerCtx()[ i - 1 ]->getDeltaMS().data() ) : NULL;
 
 		BaseLayer * layer = mLayers[ i  ];
 
@@ -302,8 +307,9 @@ DataType Network :: calcLoss( const DataVector & target, const DataVector & outp
 bool Network :: trainMiniBatch( NetworkContext * ctx, DataType * totalLoss )
 {
 	const DataMatrix * input = std::get<0>( ctx->getTrainingData() );
-	Dims inDims = *( std::get<1>( ctx->getTrainingData() ) );
-	const DataMatrix * target = std::get<2>( ctx->getTrainingData() );
+	const DataMatrix * target = std::get<1>( ctx->getTrainingData() );
+
+	Dims inDims = mLayers[ 0 ]->getBaseInDims();
 
 	const IntVector * idxOfData = std::get<0>( ctx->getChunkInfo() );
 	size_t chunkBegin = std::get<1>( ctx->getChunkInfo() );
@@ -361,8 +367,8 @@ bool Network :: trainMiniBatch( NetworkContext * ctx, DataType * totalLoss )
 	return true;
 }
 
-bool Network :: trainInternal( const DataMatrix & input, const Dims & inDims,
-		const DataMatrix & target, const CmdArgs_t & args, DataVector * losses )
+bool Network :: trainInternal( const DataMatrix & input, const DataMatrix & target,
+		const CmdArgs_t & args, DataVector * losses )
 {
 	if( input.size() != target.size() ) return false;
 
@@ -381,7 +387,7 @@ bool Network :: trainInternal( const DataMatrix & input, const Dims & inDims,
 
 	NetworkContext ctx;
 	initCtx( &ctx );
-	ctx.setTrainingData( TrainingData( &input, &inDims, &target ) );
+	ctx.setTrainingData( TrainingData( &input, &target ) );
 
 	std::unique_ptr< Optim > optim( Optim::SGD( args.mLearningRate, args.mLambda ) );
 
@@ -413,7 +419,7 @@ bool Network :: trainInternal( const DataMatrix & input, const Dims & inDims,
 			if( gx_is_inner_debug ) print( true );
 
 			if( progressInterval > 0 && 0 == ( begin % ( progressInterval * miniBatchCount ) ) ) {
-				printf( "\r%zu / %zu, loss %.8f", end, idxOfData.size(), totalLoss / end );
+				printf( "\33[2K\r%zu / %zu, loss %.8f", end, idxOfData.size(), totalLoss / end );
 				fflush( stdout );
 			}
 
@@ -436,12 +442,12 @@ bool Network :: trainInternal( const DataMatrix & input, const Dims & inDims,
 	return true;
 }
 
-bool Network :: train( const DataMatrix & input, const Dims & inDims, const DataMatrix & target,
+bool Network :: train( const DataMatrix & input, const DataMatrix & target,
 		const CmdArgs_t & args, DataVector * losses )
 {
 	std::chrono::steady_clock::time_point beginTime = std::chrono::steady_clock::now();	
 
-	bool ret = trainInternal( input, inDims, target, args, losses );
+	bool ret = trainInternal( input, target, args, losses );
 
 	std::chrono::steady_clock::time_point endTime = std::chrono::steady_clock::now();	
 

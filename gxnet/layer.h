@@ -19,7 +19,11 @@ class Optim;
 
 class BaseLayer {
 public:
-	enum { eFullConn = 1, };
+	enum {
+		eFullConn = 1,
+		eConv = 10, eMaxPool = 11, eAvgPool = 12, eConvEx = 13,
+		eDropout = 20
+	};
 
 public:
 	BaseLayer( int type );
@@ -28,7 +32,7 @@ public:
 
 	virtual void collectGradients( BaseLayerContext * ctx ) const;
 
-	virtual void applyGradients( BackwardContext * ctx, Optim * optim,
+	virtual void applyGradients( const BackwardContext & ctx, Optim * optim,
 			size_t trainingCount, size_t miniBatchCount );
 
 public:
@@ -60,16 +64,26 @@ public:
 
 	void setTraining( bool isTraining );
 
+	const Dims & getBaseInDims() const;
+
+	size_t getBaseInSize() const;
+
+	const Dims & getBaseOutDims() const;
+
+	size_t getBaseOutSize() const;
+
 protected:
 	int mType;
 	bool mIsTraining;
 
 	ActFunc * mActFunc;
+
+	Dims mBaseInDims, mBaseOutDims;
 };
 
 class FullConnLayer : public BaseLayer {
 public:
-	FullConnLayer( size_t neuronCount, size_t inSize );
+	FullConnLayer( const Dims & baseInDims, size_t neuronCount );
 
 	~FullConnLayer();
 
@@ -82,8 +96,116 @@ public:
 
 	virtual void collectGradients( BaseLayerContext * ctx ) const;
 
-	virtual void applyGradients( BackwardContext * ctx, Optim * optim,
+	virtual void applyGradients( const BackwardContext & ctx, Optim * optim,
 			size_t trainingCount, size_t miniBatchCount );
+
+protected:
+
+	virtual void printWeights( bool isDetail ) const;
+
+	virtual BaseLayerContext * newCtx() const;
+
+	/**
+	 * input dims : (*) always convert to (N,Hin) internal, Hin=in_features
+	 * output dims : (N,Hout) Hout=out_features.
+	 */
+	virtual void calcOutput( BaseLayerContext * ctx ) const;
+
+	virtual void backpropagate( BaseLayerContext * ctx, DataVector * inDelta ) const;
+
+private:
+	DataMatrix mWeights;
+	DataVector mBiases;
+};
+
+class ConvLayer : public BaseLayer {
+public:
+	ConvLayer( const Dims & baseInDims, size_t filterCount, size_t filterSize );
+	ConvLayer( const Dims & baseInDims, const DataVector & filters, const Dims & filterDims,
+			const DataVector & biases );
+
+	~ConvLayer();
+
+	const Dims & getFilterDims() const;
+
+	const DataVector & getFilters() const;
+
+	const DataVector & getBiases() const;
+
+public:
+
+	virtual void collectGradients( BaseLayerContext * ctx ) const;
+
+	virtual void applyGradients( const BackwardContext & ctx, Optim * optim,
+			size_t trainingCount, size_t miniBatchCount );
+
+protected:
+
+	virtual void printWeights( bool isDetail ) const;
+
+	virtual BaseLayerContext * newCtx() const;
+
+	/**
+	 * input dims: (N,Cin,Hin,Win) 
+	 * output dims: (N,Cout,Hout,Wout)
+	 */
+	virtual void calcOutput( BaseLayerContext * ctx ) const;
+
+	virtual void backpropagate( BaseLayerContext * ctx, DataVector * inDelta ) const;
+
+public:
+
+	static DataType forwardConv( const MDSpanRO & inMS, size_t sampleIndex, size_t filterIndex,
+			size_t beginX, size_t beginY, const MDSpanRO & filterMS );
+
+	static DataType backwardConv( const MDSpanRO & inMS, size_t sampleIndex, size_t channelIndex,
+			size_t beginX, size_t beginY, const MDSpanRO & filterMS );
+
+	static DataType gradientConv( const MDSpanRO & inMS, size_t sampleIndex, size_t filterIndex,
+			size_t channelIndex, size_t beginX, size_t beginY, const MDSpanRO & filterMS );
+
+	static void copyOutDelta( const MDSpanRO & outDeltaMS, size_t filterSize, MDSpanRW * outPaddingMS );
+
+protected:
+	Dims mFilterDims;
+	DataVector mFilters, mBiases;
+};
+
+class ConvExLayer : public ConvLayer {
+public:
+	ConvExLayer( const Dims & baseInDims, size_t filterCount, size_t filterSize );
+	ConvExLayer( const Dims & baseInDims, const DataVector & filters, const Dims & filterDims,
+			const DataVector & biases );
+
+	~ConvExLayer();
+
+	virtual void collectGradients( BaseLayerContext * ctx ) const;
+
+	virtual void applyGradients( const BackwardContext & ctx, Optim * optim,
+			size_t trainingCount, size_t miniBatchCount );
+
+protected:
+
+	virtual BaseLayerContext * newCtx() const;
+
+	virtual void calcOutput( BaseLayerContext * ctx ) const;
+
+	virtual void backpropagate( BaseLayerContext * ctx, DataVector * inDelta ) const;
+
+private:
+	static void updateFiltersRows( const DataVector & filters, const Dims & filterDims,
+			DataMatrix * rowsOfFilters, DataMatrix * rowsOfRot180Filters );
+
+private:
+	DataMatrix mRowsOfFilters, mRowsOfRot180Filters;
+};
+
+class MaxPoolLayer : public BaseLayer {
+public:
+	MaxPoolLayer( const Dims & baseInDims, size_t poolSize );
+	~MaxPoolLayer();
+
+	size_t getPoolSize() const;
 
 protected:
 
@@ -96,8 +218,61 @@ protected:
 	virtual void backpropagate( BaseLayerContext * ctx, DataVector * inDelta ) const;
 
 private:
-	DataMatrix mWeights;
-	DataVector mBiases;
+	DataType pool( const MDSpanRO & inMS, size_t sampleIndex, size_t filterIndex, size_t beginX, size_t beginY ) const;
+
+	void unpool( const MDSpanRO & inMS, size_t sampleIndex, size_t filterIndex, size_t beginX, size_t beginY,
+			const DataType maxValue, DataType outDelta, MDSpanRW * inDeltaMS ) const;
+
+private:
+	size_t mPoolSize;
+};
+
+class AvgPoolLayer : public BaseLayer {
+public:
+	AvgPoolLayer( const Dims & baseInDims, size_t poolSize );
+	~AvgPoolLayer();
+
+	size_t getPoolSize() const;
+
+protected:
+
+	virtual void printWeights( bool isDetail ) const;
+
+	virtual BaseLayerContext * newCtx() const;
+
+	virtual void calcOutput( BaseLayerContext * ctx ) const;
+
+	virtual void backpropagate( BaseLayerContext * ctx, DataVector * inDelta ) const;
+
+private:
+	DataType pool( const MDSpanRO & inMS, size_t sampleIndex, size_t filterIndex, size_t beginX, size_t beginY ) const;
+
+	void unpool( const MDSpanRO & inMS, size_t sampleIndex, size_t filterIndex, size_t beginX, size_t beginY,
+			const DataType maxValue, DataType outDelta, MDSpanRW * inDeltaMS ) const;
+
+private:
+	size_t mPoolSize;
+};
+
+class DropoutLayer : public BaseLayer {
+public:
+	DropoutLayer( const Dims & baseInDims, DataType dropRate );
+	~DropoutLayer();
+
+	DataType getDropRate() const;
+
+protected:
+
+	virtual void printWeights( bool isDetail ) const;
+
+	virtual BaseLayerContext * newCtx() const;
+
+	virtual void calcOutput( BaseLayerContext * ctx ) const;
+
+	virtual void backpropagate( BaseLayerContext * ctx, DataVector * inDelta ) const;
+
+private:
+	DataType mDropRate;
 };
 
 }; // namespace gxnet;

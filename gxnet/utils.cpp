@@ -148,7 +148,7 @@ bool Utils :: expandMnistImage( DataVector & orgImage, DataVector * newImage )
 	return ret;
 }
 
-bool Utils :: loadMnistImages( const int limitCount, const char * path, DataMatrix * images )
+bool Utils :: loadMnistImages( int limitCount, const char * path, DataMatrix * images )
 {
 	std::ifstream file( path, std::ios::binary );
 
@@ -189,6 +189,8 @@ bool Utils :: loadMnistImages( const int limitCount, const char * path, DataMatr
 			ret = false;
 			break;
 		}
+
+		if( limitCount > 0 && (int)images->size() >= limitCount ) break;
 
 		images->emplace_back( DataVector( imageSize ) );
 		for( int j = 0; j < imageSize; j++ ) {
@@ -248,6 +250,9 @@ bool Utils :: loadMnistLabels( int limitCount, const char * path, DataMatrix * l
 	}
 
 	for( auto & item : tmpVec ) {
+
+		if( limitCount > 0 && (int)labels->size() >= limitCount ) break;
+
 		labels->emplace_back( DataVector( maxClasses + 1 ) );
 		labels->back()[ item ] = 1;
 	}
@@ -294,7 +299,7 @@ void Utils :: printCtx( const char * tag, const BaseLayerContextPtrVector & data
 	printf( "%s.delta { %ld }\n", tag, data.size() );
 	for( size_t i = 0; i < data.size(); i++ ) {
 		printf( "#%ld ", i );
-		for( auto & item : data[ i ]->getDelta() ) printf( "%8e ", item );
+		for( auto & item : data[ i ]->getDeltaMS().data() ) printf( "%8e ", item );
 		printf( "\n" );
 	}
 
@@ -309,7 +314,7 @@ void Utils :: printCtx( const char * tag, const BackwardContextPtrVector & data 
 	printf( "%s.delta { %ld }\n", tag, data.size() );
 	for( size_t i = 0; i < data.size(); i++ ) {
 		printf( "#%ld ", i );
-		for( auto & item : data[ i ]->getDelta() ) printf( "%8e ", item );
+		for( auto & item : data[ i ]->getDeltaMS().data() ) printf( "%8e ", item );
 		printf( "\n" );
 	}
 
@@ -338,7 +343,7 @@ void Utils :: printMDSpan( const char * tag, const MDSpanRO & data, bool useSciF
 	for( size_t f = 0; f < dims[ 0 ]; f++ ) {
 		if( dims[ 0 ] > 1 ) printf( "%s#%zu\n", tag, f );
 		for( size_t c = 0; c < dims[ 1 ]; c++ ) {
-			if( dims[ 1 ] > 1 ) printf( "%s#%zu\n", tag, c );
+			if( dims[ 1 ] > 1 ) printf( "%s#%zu-%zu\n", tag, f, c );
 			for( size_t x = 0; x < dims[ 2 ]; x++ ) {
 				for( size_t y = 0; y < dims[ 3 ]; y++ ) {
 					DataType value = 0;
@@ -377,19 +382,35 @@ bool Utils :: save( const char * path, const Network & network )
 	for( size_t i = 0; i < network.getLayers().size(); i++ ) {
 		BaseLayer * layer = network.getLayers() [ i ];
 
-		fprintf( fp, "Layer#%ld: Type = %d; ActFuncType = %d; \n",
+		fprintf( fp, "Layer#%ld: Type = %d; ActFuncType = %d; BaseInDims = %s;\n",
 				i, layer->getType(),
-				layer->getActFunc() ? layer->getActFunc()->getType() : -1 );
+				layer->getActFunc() ? layer->getActFunc()->getType() : -1,
+				gx_vector2string( layer->getBaseInDims() ).c_str() );
 
 		if( BaseLayer::eFullConn == layer->getType() ) {
 			FullConnLayer * fc = (FullConnLayer*)layer;
-			fprintf( fp, "Weights: Count = %zu; InSize = %zu; \n",
-					fc->getWeights().size(), fc->getWeights()[ 0 ].size() );
+			fprintf( fp, "Weights: Count = %zu;\n", fc->getWeights().size() );
 			for( size_t k = 0; k < fc->getWeights().size(); k++ ) {
 				fprintf( fp, "%s\n", gx_vector2string( fc->getWeights()[ k ] ).c_str() );
 			}
 			fprintf( fp, "Biases: Count = %zu;\n", fc->getBiases().size() );
 			fprintf( fp, "%s\n", gx_vector2string( fc->getBiases() ).c_str() );
+		}
+		if( BaseLayer::eMaxPool == layer->getType() ) {
+			fprintf( fp, "Weights: PoolSize = %zu;\n", ((MaxPoolLayer*)layer)->getPoolSize() );
+		}
+		if( BaseLayer::eAvgPool == layer->getType() ) {
+			fprintf( fp, "Weights: PoolSize = %zu;\n", ((AvgPoolLayer*)layer)->getPoolSize() );
+		}
+		if( BaseLayer::eConv == layer->getType() || BaseLayer::eConvEx == layer->getType() ) {
+			ConvLayer * conv = (ConvLayer*)layer;
+			fprintf( fp, "Weights: FilterDims = %s;\n", gx_vector2string( conv->getFilterDims() ).c_str() );
+			fprintf( fp, "%s\n", gx_vector2string( conv->getFilters() ).c_str() );
+			fprintf( fp, "Biases: Count = %zu;\n", conv->getBiases().size() );
+			fprintf( fp, "%s\n", gx_vector2string( conv->getBiases() ).c_str() );
+		}
+		if( BaseLayer::eDropout == layer->getType() ) {
+			fprintf( fp, "Weights: DropRate = %e;\n", ((DropoutLayer*)layer)->getDropRate() );
 		}
 	}
 
@@ -434,20 +455,22 @@ bool Utils :: load( const char * path, Network * network )
 		int layerType = std::stoi( getString( line, "Type = (\\S+);", "0" ) );
 		int actFuncType = std::stoi( getString( line, "ActFuncType = (\\S+);", "0" ) );
 
+		Dims baseInDims;
+		gx_string2vector( getString( line, "BaseInDims = (\\S+);", "0" ), &baseInDims );
+
 		if( BaseLayer::eFullConn == layerType ) {
 			// Weights: Count = xx; InSize = xx;
 			if( ! std::getline( fp, line ) ) return false;
 
 			int count = std::stoi( getString( line, "Count = (\\S+);", "0" ) );
-			int inSize = std::stoi( getString( line, "Size = (\\S+);", "0" ) );
 
-			layer = new FullConnLayer( count, inSize );
+			layer = new FullConnLayer( baseInDims, count );
 
 			DataMatrix weights( count );
 			for( int i = 0; i < count; i++ ) {
 				if( ! std::getline( fp, line ) ) return false;
 
-				weights[ i ].resize( inSize );
+				weights[ i ].resize( layer->getBaseInSize() );
 				gx_string2valarray( line, &( weights[ i ] ) );
 			}
 
@@ -460,6 +483,56 @@ bool Utils :: load( const char * path, Network * network )
 			gx_string2valarray( line, &biases );
 
 			((FullConnLayer*)layer)->setWeights( weights, biases );
+		}
+		if( BaseLayer::eConv == layerType || BaseLayer::eConvEx == layerType ) {
+			// Weights: FilterDims = f,c,x,y;
+			if( ! std::getline( fp, line ) ) return false;
+
+			Dims filterDims;
+			gx_string2vector( getString( line, "FilterDims = (\\S+);", "0" ), &filterDims );
+
+			if( ! std::getline( fp, line ) ) return false;
+
+			DataVector filters( gx_dims_flatten_size( filterDims ) );
+			gx_string2valarray( line, &filters );
+
+			// Biases: Count = xx;
+			if( ! std::getline( fp, line ) ) return false;
+
+			DataVector biases( filterDims[ 0 ] );
+
+			if( ! std::getline( fp, line ) ) return false;
+			gx_string2valarray( line, &biases );
+
+			if( BaseLayer::eConv == layerType ) {
+				layer = new ConvLayer( baseInDims, filters, filterDims, biases );
+			} else {
+				layer = new ConvExLayer( baseInDims, filters, filterDims, biases );
+			}
+		}
+		if( BaseLayer::eMaxPool == layerType ) {
+			// Weights: PoolSize = xx;
+			if( ! std::getline( fp, line ) ) return false;
+
+			int poolSize = std::stoi( getString( line, "PoolSize = (\\S+);", "0" ) );
+
+			layer = new MaxPoolLayer( baseInDims, poolSize );
+		}
+		if( BaseLayer::eAvgPool == layerType ) {
+			// Weights: PoolSize = xx;
+			if( ! std::getline( fp, line ) ) return false;
+
+			int poolSize = std::stoi( getString( line, "PoolSize = (\\S+);", "0" ) );
+
+			layer = new AvgPoolLayer( baseInDims, poolSize );
+		}
+		if( BaseLayer::eDropout == layerType ) {
+			// Weights: DropRate = xx;
+			if( ! std::getline( fp, line ) ) return false;
+
+			DataType dropRate = std::stod( getString( line, "DropRate = (\\S+);", "0" ) );
+
+			layer = new DropoutLayer( baseInDims, dropRate );
 		}
 
 		if( actFuncType > 0 ) layer->setActFunc( new ActFunc( actFuncType ) );
@@ -474,17 +547,18 @@ void Utils :: getCmdArgs( int argc, char * const argv[],
 		const CmdArgs_t & defaultArgs, CmdArgs_t * args )
 {
 	static struct option opts[] = {
-		{ "model",     required_argument,  NULL, 1 },
-		{ "training",  required_argument,  NULL, 2 },
-		{ "eval",      required_argument,  NULL, 3 },
-		{ "epoch",     required_argument,  NULL, 4 },
-		{ "minibatch", required_argument,  NULL, 5 },
-		{ "lr",        required_argument,  NULL, 6 },
-		{ "lambda",    required_argument,  NULL, 7 },
-		{ "shuffle",   required_argument,  NULL, 8 },
-		{ "debug",     no_argument,        NULL, 9 },
-		{ "thread",    required_argument,  NULL, 10 },
-		{ "help",      no_argument,        NULL, 99 },
+		{ "model",       required_argument,  NULL, 1 },
+		{ "training",    required_argument,  NULL, 2 },
+		{ "eval",        required_argument,  NULL, 3 },
+		{ "epoch",       required_argument,  NULL, 4 },
+		{ "minibatch",   required_argument,  NULL, 5 },
+		{ "lr",          required_argument,  NULL, 6 },
+		{ "lambda",      required_argument,  NULL, 7 },
+		{ "shuffle",     required_argument,  NULL, 8 },
+		{ "debug",       no_argument,        NULL, 9 },
+		{ "thread",      required_argument,  NULL, 10 },
+		{ "dataaug",     required_argument,  NULL, 11 },
+		{ "help",        no_argument,        NULL, 99 },
 		{ 0, 0, 0, 0}
 	};
 
@@ -525,6 +599,9 @@ void Utils :: getCmdArgs( int argc, char * const argv[],
 			case 10:
 				args->mThreadCount = atoi( optarg );
 				break;
+			case 11:
+				args->mIsDataAug = 0 == atoi( optarg ) ? false : true;
+				break;
 			case '?' :
 			case 'v' :
 			default:
@@ -538,6 +615,7 @@ void Utils :: getCmdArgs( int argc, char * const argv[],
 				printf( "\t--lr <learning rate> default is %.2f\n", defaultArgs.mLearningRate );
 				printf( "\t--lambda <lambda> default is %.2f\n", defaultArgs.mLambda );
 				printf( "\t--shuffle <shuffle> 0 for no shuffle, otherwise shuffle, default is %d\n", defaultArgs.mIsShuffle );
+				printf( "\t--dataaut <dataaug> 0 for no dataaug, otherwise dataaug, default is %d\n", defaultArgs.mIsShuffle );
 				printf( "\t--debug debug mode on\n" );
 				printf( "\t--help show usage\n" );
 				exit( 0 );
@@ -549,6 +627,7 @@ void Utils :: getCmdArgs( int argc, char * const argv[],
 	printf( "\tepochCount %d, miniBatchCount %d, learningRate %f, lambda %f\n",
 		args->mEpochCount, args->mMiniBatchCount, args->mLearningRate, args->mLambda );
 	printf( "\tshuffle %s, debug %s\n", args->mIsShuffle ? "true" : "false", gx_is_inner_debug ? "true" : "false" );
+	printf( "\tdataaug %s\n", args->mIsDataAug ? "true" : "false" );
 	printf( "\tmodelPath %s\n", NULL == args->mModelPath ? "NULL" : args->mModelPath );
 	printf( "\tthreadCount %d, hardware_concurrency: %u\n", args->mThreadCount, std::thread::hardware_concurrency() );
 	printf( "\tsimd::size %zu\n", DataSimd::size() );

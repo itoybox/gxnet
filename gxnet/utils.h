@@ -16,6 +16,7 @@ typedef struct tagCmdArgs {
 	DataType mLearningRate;
 	DataType mLambda;
 	bool mIsShuffle;
+	bool mIsDataAug;
 	const char * mModelPath;
 } CmdArgs_t;
 
@@ -41,22 +42,22 @@ public:
 
 	static bool expandMnistImage( DataVector & orgImage, DataVector * newImage );
 
-	static bool loadMnistImages( const int limitCount, const char * path, DataMatrix * images );
+	static bool loadMnistImages( int limitCount, const char * path, DataMatrix * images );
 
 	static bool loadMnistLabels( int limitCount, const char * path, DataMatrix * labels );
 
 	static void printMatrix( const char * tag, const DataMatrix & data,
-			bool useSciFmt = true, bool colorMax = false);
+			bool useSciFmt = false, bool colorMax = false );
 
 	static void printCtx( const char * tag, const BaseLayerContextPtrVector & data );
 
 	static void printCtx( const char * tag, const BackwardContextPtrVector & data );
 
-	static void printVector( const char * tag, const DataVector & data, bool useSciFmt = true );
+	static void printVector( const char * tag, const DataVector & data, bool useSciFmt = false );
 
-	static void printVector( const char * tag, const DataVector & data, const Dims & dims, bool useSciFmt = true );
+	static void printVector( const char * tag, const DataVector & data, const Dims & dims, bool useSciFmt = false );
 
-	static void printMDSpan( const char * tag, const MDSpanRO & data, bool useSciFmt = true );
+	static void printMDSpan( const char * tag, const MDSpanRO & data, bool useSciFmt = false );
 
 	static bool save( const char * path, const Network & network );
 

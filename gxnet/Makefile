@@ -17,11 +17,12 @@ CC = gcc
 
 PROGS = gxtool
 
-TEST_PROGS = testbackward testseeds testmnist 
+TEST_PROGS = testbackward testseeds testmnist \
+		testcnn testemnist
 
 ######################################################################
 
-COMM_OBJS = common.o eval.o utils.o \
+COMM_OBJS = common.o eval.o utils.o im2rows.o \
 		optim.o context.o activation.o layer.o network.o
 
 ######################################################################
@@ -40,6 +41,12 @@ testseeds: $(COMM_OBJS) testseeds.o
 	$(CC) $(CFLAGS) $^ $(LDFLAGS) -o $@
 
 testmnist: $(COMM_OBJS) testmnist.o
+	$(CC) $(CFLAGS) $^ $(LDFLAGS) -o $@
+
+testcnn: $(COMM_OBJS) testcnn.o
+	$(CC) $(CFLAGS) $^ $(LDFLAGS) -o $@
+
+testemnist: $(COMM_OBJS) testemnist.o
 	$(CC) $(CFLAGS) $^ $(LDFLAGS) -o $@
 
 #=====================================================================

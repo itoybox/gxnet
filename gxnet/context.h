@@ -18,17 +18,21 @@ public:
 
 	virtual ~BackwardContext();
 
-	DataVector & getDelta();
+	MDSpanRW & getDeltaMS();
 
-	const DataVector & getDelta() const;
+	const MDSpanRO & getDeltaRO() const;
 
 	DataMatrix & getGradients();
 
 	const DataMatrix & getGradients() const;
 
 protected:
-	DataVector mDelta;
 	DataMatrix mGradients;
+
+	DataVector mDelta;
+	MDSpanRW mDeltaMS;
+
+	MDSpanRO mDeltaRO;
 };
 
 class BaseLayerContext : public BackwardContext {
@@ -67,6 +71,38 @@ public:
 
 protected:
 	DataVector mTempWeights, mTempGradients;
+};
+
+class ConvExLayerContext : public BaseLayerContext {
+public:
+	ConvExLayerContext();
+	~ConvExLayerContext();
+
+	DataMatrix & getRows4collectGradients();
+
+	DataMatrix & getRows4calcOutput();
+
+	DataMatrix & getRows4backpropagate();
+
+	DataMatrix & getRowsOfDelta();
+
+	DataVector & getPaddingDelta();
+
+private:
+	DataMatrix mRows4collectGradient, mRows4calcOutput,
+			mRows4backpropagate, mRowsOfDelta;
+	DataVector mPaddingDelta;
+};
+
+class DropoutLayerContext : public BaseLayerContext {
+public:
+	DropoutLayerContext();
+	~DropoutLayerContext();
+
+	BoolVector & getMask();
+
+private:
+	mutable BoolVector mMask;
 };
 
 }; // namespace gxnet;

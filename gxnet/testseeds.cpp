@@ -68,8 +68,7 @@ bool loadData( const char * filename, DataMatrix * data, std::set< int > * label
 	return true;
 }
 
-void check( const char * tag, Network & network, DataMatrix & input, const Dims & inDims,
-		DataMatrix & target )
+void check( const char * tag, Network & network, DataMatrix & input, DataMatrix & target )
 {
 	if( gx_is_inner_debug ) network.print();
 
@@ -79,7 +78,7 @@ void check( const char * tag, Network & network, DataMatrix & input, const Dims 
 
 		DataVector output;
 
-		bool ret = network.forward( input[ i ], inDims, &output );
+		bool ret = network.forward( input[ i ], &output );
 
 		int outputType = Utils::max_index( std::begin( output ), std::end( output ) );
 		int targetType = Utils::max_index( std::begin( target[ i ] ), std::end( target[ i ] ) );
@@ -153,7 +152,7 @@ void test( const CmdArgs_t & args )
 
 	splitData( args, data, labels, &input, &target, &input4eval, &target4eval );
 
-	Dims inDims = { input[ 0 ].size() };
+	Dims baseInDims = { input[ 0 ].size() };
 
 	const char * path = "./seeds.model";
 
@@ -165,25 +164,25 @@ void test( const CmdArgs_t & args )
 
 		BaseLayer * layer = NULL;
 
-		layer = new FullConnLayer( 5, input[ 0 ].size() );
+		layer = new FullConnLayer( baseInDims, input[ 0 ].size() );
 		layer->setActFunc( ActFunc::sigmoid() );
 		network.addLayer( layer );
 
-		layer = new FullConnLayer( target[ 0 ].size(), 5 );
+		layer = new FullConnLayer( layer->getBaseOutDims(), target[ 0 ].size() );
 		layer->setActFunc( ActFunc::softmax() );
 		network.addLayer( layer );
 
-		check( "before train", network, input4eval, inDims, target4eval );
+		check( "before train", network, input4eval, target4eval );
 
 		network.print( true );
 
-		bool ret = network.train( input, inDims, target, args );
+		bool ret = network.train( input, target, args );
 
 		Utils::save( path, network );
 
 		printf( "train %s\n", ret ? "succ" : "fail" );
 
-		check( "after train", network, input4eval, inDims, target4eval );
+		check( "after train", network, input4eval, target4eval );
 	}
 
 	{
@@ -193,7 +192,7 @@ void test( const CmdArgs_t & args )
 
 		network.print();
 
-		check( "load model", network, input4eval, inDims, target4eval );
+		check( "load model", network, input4eval, target4eval );
 	}
 }
 

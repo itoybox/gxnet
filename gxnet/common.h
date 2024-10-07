@@ -15,11 +15,12 @@
 
 namespace gxnet {
 
+typedef double DataType;
+
 extern bool gx_is_inner_debug;
+const DataType gx_debug_weight = 0.1;
 
 namespace stdx = std::experimental::parallelism_v2;
-
-typedef double DataType;
 
 typedef stdx::native_simd< DataType > DataSimd;
 
@@ -136,7 +137,6 @@ class MDSpanRO {
 public:
 	MDSpanRO( const DataVector & data, const Dims & dims )
 			: mData( data ), mDims( dims ) {
-		//assert( gx_dims_flatten_size( dims ) == data.size() );
 	}
 
 	MDSpanRO( MDSpanRW & other )
@@ -154,24 +154,24 @@ public:
 		return mDims[ index ];
 	}
 
-	const DataType & operator()( size_t i ) const {
+	const DataType operator()( size_t i ) const {
 		return mData[ i ];
 	}
 
-	const DataType & operator()( size_t i, size_t j ) const {
+	const DataType operator()( size_t i, size_t j ) const {
 		assert( mDims.size() == 2 );
 		return mData[ i * mDims[ 1 ] + j ];
 	}
 
-	const DataType & operator()( size_t i, size_t j, size_t k ) const {
+	const DataType operator()( size_t i, size_t j, size_t k ) const {
 		assert( mDims.size() == 3 );
 		return mData[ ( mDims[ 1 ] * mDims[ 2 ] * i ) + ( mDims[ 2 ] * j ) + k ];
 	}
 
-	const DataType & operator()( size_t f, size_t c, size_t i, size_t j ) const {
+	const DataType operator()( size_t f, size_t c, size_t i, size_t j ) const {
 		assert( mDims.size() == 4 );
 		return mData[ ( mDims[ 1 ] * mDims[ 2 ] * mDims[ 3 ] * f )
-		       + ( mDims[ 2 ] * mDims[ 3 ] * c ) + ( mDims[ 3 ] * i ) + j ];
+				+ ( mDims[ 2 ] * mDims[ 3 ] * c ) + ( mDims[ 3 ] * i ) + j ];
 	}
 
 private:

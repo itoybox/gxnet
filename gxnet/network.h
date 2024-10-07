@@ -16,7 +16,6 @@ typedef void ( * OnEpochEnd_t )( Network & network, int epoch, DataType loss );
 
 typedef std::tuple<
 			const DataMatrix * /* input */,
-			const Dims *       /* inDims */,
 			const DataMatrix * /* target */
 		> TrainingData;
 
@@ -93,11 +92,9 @@ public:
 
 	void initCtx( NetworkContext * ctx ) const;
 
-	bool forward( const DataVector & input, const Dims & inDims,
-			DataVector * output ) const;
+	bool forward( const DataVector & input, DataVector * output ) const;
 
-	bool train( const DataMatrix & input, const Dims & inDims,
-			const DataMatrix & target, const CmdArgs_t & args,
+	bool train( const DataMatrix & input, const DataMatrix & target, const CmdArgs_t & args,
 			DataVector * losses = nullptr );
 
 	void print( bool isDetail = false ) const;
@@ -116,8 +113,7 @@ private:
 
 	DataType calcLoss( const DataVector & target, const DataVector & output );
 
-	bool trainInternal( const DataMatrix & input, const Dims & inDims,
-			const DataMatrix & target, const CmdArgs_t & args,
+	bool trainInternal( const DataMatrix & input, const DataMatrix & target, const CmdArgs_t & args,
 			DataVector * losses = nullptr );
 
 private:

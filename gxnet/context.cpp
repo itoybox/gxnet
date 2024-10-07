@@ -4,6 +4,7 @@
 namespace gxnet {
 
 BackwardContext :: BackwardContext()
+	: mDeltaMS( mDelta ), mDeltaRO( mDeltaMS )
 {
 }
 
@@ -11,14 +12,14 @@ BackwardContext :: ~BackwardContext()
 {
 }
 
-DataVector & BackwardContext :: getDelta()
+MDSpanRW & BackwardContext :: getDeltaMS()
 {
-	return mDelta;
+	return mDeltaMS;
 }
 
-const DataVector & BackwardContext :: getDelta() const
+const MDSpanRO & BackwardContext :: getDeltaRO() const
 {
-	return mDelta;
+	return mDeltaRO;
 }
 
 DataMatrix & BackwardContext :: getGradients()
@@ -82,6 +83,57 @@ DataVector & FullConnLayerContext :: getTempGradients()
 {
 	return mTempGradients;
 }
+
+////////////////////////////////////////////////////////////
+
+ConvExLayerContext :: ConvExLayerContext()
+{
+}
+
+ConvExLayerContext :: ~ConvExLayerContext()
+{
+}
+
+DataMatrix & ConvExLayerContext :: getRows4collectGradients()
+{
+	return mRows4collectGradient;
+}
+
+DataMatrix & ConvExLayerContext :: getRows4calcOutput()
+{
+	return mRows4calcOutput;
+}
+
+DataMatrix & ConvExLayerContext :: getRows4backpropagate()
+{
+	return mRows4backpropagate;
+}
+
+DataMatrix & ConvExLayerContext :: getRowsOfDelta()
+{
+	return mRowsOfDelta;
+}
+
+DataVector & ConvExLayerContext :: getPaddingDelta()
+{
+	return mPaddingDelta;
+}
+
+////////////////////////////////////////////////////////////
+
+DropoutLayerContext :: DropoutLayerContext()
+{
+}
+
+DropoutLayerContext :: ~DropoutLayerContext()
+{
+}
+
+BoolVector & DropoutLayerContext :: getMask()
+{
+	return mMask;
+}
+
 
 }; // namespace gxnet;
 

@@ -10,13 +10,13 @@ using namespace gxnet;
 bool loadData( const CmdArgs_t & args, DataMatrix * input, DataMatrix * target,
 		DataMatrix * input4eval, DataMatrix * target4eval )
 {
-	const char * path = "mnist/train-images-idx3-ubyte";
+	const char * path = "emnist/train-images-idx3-ubyte";
 	if( ! Utils::loadMnistImages( args.mTrainingCount, path, input ) ) {
 		printf( "read %s fail\n", path );
 		return false;
 	}
 
-	path = "mnist/train-labels-idx1-ubyte";
+	path = "emnist/train-labels-idx1-ubyte";
 	if( ! Utils::loadMnistLabels( args.mTrainingCount, path, target ) ) {
 		printf( "read %s fail\n", path );
 		return false;
@@ -24,14 +24,14 @@ bool loadData( const CmdArgs_t & args, DataMatrix * input, DataMatrix * target,
 
 	if( args.mIsDataAug ) {
 		// load rotated images
-		path = "mnist/train-images-idx3-ubyte.rot";
+		path = "emnist/train-images-idx3-ubyte.rot";
 		if( 0 == access( path, F_OK ) ) {
 			if( ! Utils::loadMnistImages( args.mTrainingCount, path, input ) ) {
 				printf( "read %s fail\n", path );
 				return false;
 			}
 
-			path = "mnist/train-labels-idx1-ubyte.rot";
+			path = "emnist/train-labels-idx1-ubyte.rot";
 			if( ! Utils::loadMnistLabels( args.mTrainingCount, path, target ) ) {
 				printf( "read %s fail\n", path );
 				return false;
@@ -43,20 +43,22 @@ bool loadData( const CmdArgs_t & args, DataMatrix * input, DataMatrix * target,
 
 		for( size_t i = 0; i < orgSize; i++ ) {
 			DataVector newImage;
-			if( Utils::centerMnistImage( ( *input )[ i ], &newImage ) ) {
+			if( Utils::centerMnistImage( input->at( i ), &newImage ) ) {
 				input->emplace_back( newImage );
-				target->emplace_back( ( *target )[ i ] );
+				target->emplace_back( target->at( i ) );
 			}
 		}
+
+		printf( "center %zu images\n", input->size() - orgSize );
 	}
 
-	path = "mnist/t10k-images-idx3-ubyte";
+	path = "emnist/test-images-idx3-ubyte";
 	if( ! Utils::loadMnistImages( args.mEvalCount, path, input4eval ) ) {
 		printf( "read %s fail\n", path );
 		return false;
 	}
 
-	path = "mnist/t10k-labels-idx1-ubyte";
+	path = "emnist/test-labels-idx1-ubyte";
 	if( ! Utils::loadMnistLabels( args.mEvalCount, path, target4eval ) ) {
 		printf( "read %s fail\n", path );
 		return false;
@@ -65,13 +67,24 @@ bool loadData( const CmdArgs_t & args, DataMatrix * input, DataMatrix * target,
 	printf( "input { %zu }, target { %zu }, input4eval { %zu }, target4eval { %zu }\n",
 			input->size(), target->size(), input4eval->size(), target4eval->size() );
 
+	// convert to 32 * 32
+	for( auto & item : *input ) {
+		DataVector orgImage = item;
+		Utils::expandMnistImage( orgImage, &item );
+	}
+
+	for( auto & item : *input4eval ) {
+		DataVector orgImage = item;
+		Utils::expandMnistImage( orgImage, &item );
+	}
+
 	return true;
 }
 
 void save_checkpoint( Network & network, int epoch, DataType loss )
 {
 	char path[ 128 ] = { 0 };
-	snprintf( path, sizeof( path ), "./mnist.%d.model", epoch );
+	snprintf( path, sizeof( path ), "./emnist.%d.model", epoch );
 
 	Utils::save( path, network );
 	printf( "\33[2K\r\tsave checkpoint (%s) for epoch#%d, loss %f\n", path, epoch, loss );
@@ -86,19 +99,15 @@ void test( const CmdArgs_t & args )
 		return;
 	}
 
-	if( gx_is_inner_debug ) {
-		Utils::printMatrix( "input", input );
-		Utils::printMatrix( "target", target );
-	}
+	const char * path = "./emnist.model";
 
-	const char * path = "./mnist.model";
+	Dims baseInDims = { 1, (size_t)std::sqrt( input[ 0 ].size() ), (size_t)std::sqrt( input[ 0 ].size() ) };
 
 	//train & save model
 	{
 		Network network;
 
 		network.setOnEpochEnd( save_checkpoint );
-
 		network.setLossFuncType( Network::eCrossEntropy );
 
 		if( NULL != args.mModelPath && 0 == access( args.mModelPath, F_OK ) ) {
@@ -111,9 +120,21 @@ void test( const CmdArgs_t & args )
 		} else {
 			BaseLayer * layer = NULL;
 
-			Dims baseInDims = { 1, (size_t)std::sqrt( input[ 0 ].size() ), (size_t)std::sqrt( input[ 0 ].size() ) };
+			layer = new ConvExLayer( baseInDims, 4, 5 );
+			layer->setActFunc( ActFunc::leakyReLU() );
+			network.addLayer( layer );
 
-			layer = new FullConnLayer( NULL == layer ? baseInDims : layer->getBaseOutDims(), 30 );
+			layer = new MaxPoolLayer( layer->getBaseOutDims(), 2 );
+			network.addLayer( layer );
+
+			layer = new ConvExLayer( layer->getBaseOutDims(), 8, 3 );
+			layer->setActFunc( ActFunc::leakyReLU() );
+			network.addLayer( layer );
+
+			layer = new MaxPoolLayer( layer->getBaseOutDims(), 2 );
+			network.addLayer( layer );
+
+			layer = new FullConnLayer( layer->getBaseOutDims(), 60 );
 			layer->setActFunc( ActFunc::sigmoid() );
 			network.addLayer( layer );
 
@@ -148,12 +169,12 @@ void test( const CmdArgs_t & args )
 int main( const int argc, char * argv[] )
 {
 	CmdArgs_t defaultArgs = {
-		.mThreadCount = 4,
+		.mThreadCount = 8,
 		.mTrainingCount = 0,
 		.mEvalCount = 0,
 		.mEpochCount = 5,
-		.mMiniBatchCount = 100,
-		.mLearningRate = 3.0,
+		.mMiniBatchCount = 128,
+		.mLearningRate = 2.0,
 		.mLambda = 5.0,
 		.mIsShuffle = true,
 		.mIsDataAug = true,
