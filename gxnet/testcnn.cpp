@@ -18,49 +18,50 @@ void testConvLayer()
 
 	DataVector biases = { 1, 1 };
 
-	Dims filterDims = { 2, 2, 3, 3 };
-	DataVector filters( gx_dims_flatten_size( filterDims ) );
-	for( size_t i = 0; i < filters.size(); i++ ) filters[ i ] = i * 0.1;
+	MDVector filters;
+	filters.second = { 2, 2, 3, 3 };
+	filters.first.resize( gx_dims_flatten_size( filters.second ) );
 
-	Dims inDims = { 2, 2, 4, 4 };
-	DataVector input( gx_dims_flatten_size( inDims ) );
-	std::iota( std::begin( input ), std::end( input ), 0 );
+	for( size_t i = 0; i < filters.first.size(); i++ ) filters.first[ i ] = i * 0.1;
 
-	MDSpanRO inMS( input, inDims );
+	MDVector inMD;
+	inMD.second = { 2, 2, 4, 4, };
+	inMD.first.resize( gx_dims_flatten_size( inMD.second ) );
+	std::iota( std::begin( inMD.first ), std::end( inMD.first ), 0 );
 
-	Utils::printMDSpan( "input", inMS );
+	Utils::printMDVector( "input", inMD );
 
-	Utils::printVector( "filters", filters );
+	Utils::printMDVector( "filters", filters );
 
-	TConvLayer conv( { 2, 4, 4, }, filters, filterDims, biases );
+	TConvLayer conv( { 2, 4, 4, }, filters, biases );
 
 	conv.print( true );
 
 	std::unique_ptr< BaseLayerContext > ctx( conv.createCtx() );
 
-	ctx->setInMS( &inMS );
+	ctx->setInMD( &inMD );
 
 	conv.forward( ctx.get() );
 
-	Utils::printMDSpan( "conv.output", ctx->getOutRO() );
-	Utils::printVector( "conv.output", ctx->getOutRO().data() );
+	Utils::printMDVector( "conv.output", ctx->getOutMD() );
+	Utils::printVector( "conv.output", ctx->getOutMD().first );
 
-	DataVector inDelta( input.size() );
+	DataVector inDelta( inMD.first.size() );
 
-	MDSpanRW & deltaMS = ctx->getDeltaMS();
+	MDVector & deltaData = ctx->getDeltaMD();
 
-	for( size_t i = 0; i < deltaMS.data().size(); i++ ) deltaMS.data()[ i ] = i * 0.1;
+	for( size_t i = 0; i < deltaData.first.size(); i++ ) deltaData.first[ i ] = i * 0.1;
 
 	conv.backward( ctx.get(), &inDelta );
 
-	Utils::printMDSpan( "conv.outDelta", ctx->getDeltaRO() );
+	Utils::printMDVector( "conv.outDelta", ctx->getDeltaMD() );
 
-	Utils::printVector( "conv.inDelta", inDelta, inDims );
+	Utils::printVector( "conv.inDelta", inDelta, inMD.second );
 	Utils::printVector( "conv.inDelta", inDelta );
 
 	conv.collectGradients( ctx.get() );
 
-	Utils::printVector( "filters.grad", ctx->getGradients()[ 0 ], filterDims );
+	Utils::printVector( "filters.grad", ctx->getGradients()[ 0 ], filters.second );
 
 	std::unique_ptr< Optim > optim( Optim::SGD( 0.1, 1 ) );
 
@@ -76,26 +77,26 @@ void testMaxPoolLayer()
 	DataVector input( gx_dims_flatten_size( inDims ) );
 	std::iota( std::begin( input ), std::end( input ), 0 );
 
-	MDSpanRO inMS( input, inDims );
+	MDVector inMD( input, inDims );
 
-	Utils::printMDSpan( "input", inMS );
+	Utils::printMDVector( "input", inMD );
 
 	MaxPoolLayer maxpool( { 1, 4, 4 }, 2 );
 
 	std::unique_ptr< BaseLayerContext > ctx( maxpool.createCtx() );
-	ctx->setInMS( &inMS );
+	ctx->setInMD( &inMD );
 
 	maxpool.forward( ctx.get() );
 
-	Utils::printMDSpan( "maxpool.output", ctx->getOutRO() );
+	Utils::printMDVector( "maxpool.output", ctx->getOutMD() );
 
 	DataVector inDelta( input.size() );
 
-	ctx->getDeltaMS().data() = 0.5;
+	ctx->getDeltaMD().first = 0.5;
 
 	maxpool.backward( ctx.get(), &inDelta );
 
-	Utils::printVector( "maxpool.inDelta", inDelta, ctx->getInMS().dims() );
+	Utils::printVector( "maxpool.inDelta", inDelta, ctx->getInMD().second );
 }
 
 int main( int argc, const char * argv[] )

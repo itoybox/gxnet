@@ -1,8 +1,6 @@
 
 #include "optim.h"
 
-#include <execution>
-
 namespace gxnet {
 
 Optim :: Optim( int type )

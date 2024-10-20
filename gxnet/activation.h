@@ -14,9 +14,9 @@ public:
 
 	int getType() const;
 
-	void activate( const MDSpanRO & inMS, MDSpanRW * outMS ) const;
+	void activate( const MDVector & inMD, MDVector * outMD ) const;
 
-	void derivate( const MDSpanRO & outMS, MDSpanRW * outDeltaMS ) const;
+	void derivate( const MDVector & outMD, MDVector * outDeltaMD ) const;
 
 public:
 

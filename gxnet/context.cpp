@@ -4,7 +4,6 @@
 namespace gxnet {
 
 BackwardContext :: BackwardContext()
-	: mDeltaMS( mDelta ), mDeltaRO( mDeltaMS )
 {
 }
 
@@ -12,14 +11,14 @@ BackwardContext :: ~BackwardContext()
 {
 }
 
-MDSpanRW & BackwardContext :: getDeltaMS()
+MDVector & BackwardContext :: getDeltaMD()
 {
-	return mDeltaMS;
+	return mDeltaMD;
 }
 
-const MDSpanRO & BackwardContext :: getDeltaRO() const
+const MDVector & BackwardContext :: getDeltaMD() const
 {
-	return mDeltaRO;
+	return mDeltaMD;
 }
 
 DataMatrix & BackwardContext :: getGradients()
@@ -35,33 +34,27 @@ const DataMatrix & BackwardContext :: getGradients() const
 ////////////////////////////////////////////////////////////
 
 BaseLayerContext :: BaseLayerContext()
-	: mOutMS( mOutput ), mOutRO( mOutMS )
 {
-	mInMS = NULL;
+	mInMD = NULL;
 }
 
 BaseLayerContext :: ~BaseLayerContext()
 {
 }
 
-void BaseLayerContext :: setInMS( const MDSpanRO * inMS )
+void BaseLayerContext :: setInMD( const MDVector * inMD )
 {
-	mInMS = inMS;
+	mInMD = inMD;
 }
 
-const MDSpanRO & BaseLayerContext :: getInMS()
+const MDVector & BaseLayerContext :: getInMD()
 {
-	return *mInMS;
+	return * mInMD;
 }
 
-MDSpanRW & BaseLayerContext :: getOutMS()
+MDVector & BaseLayerContext :: getOutMD()
 {
-	return mOutMS;
-}
-
-const MDSpanRO & BaseLayerContext :: getOutRO()
-{
-	return mOutRO;
+	return mOutMD;
 }
 
 ////////////////////////////////////////////////////////////
@@ -82,6 +75,21 @@ DataVector & FullConnLayerContext :: getTempWeights()
 DataVector & FullConnLayerContext :: getTempGradients()
 {
 	return mTempGradients;
+}
+
+////////////////////////////////////////////////////////////
+
+ConvLayerContext :: ConvLayerContext()
+{
+}
+
+ConvLayerContext :: ~ConvLayerContext()
+{
+}
+
+MDVector & ConvLayerContext :: getPaddingDeltaMD()
+{
+	return mPaddingDeltaMD;
 }
 
 ////////////////////////////////////////////////////////////
@@ -112,11 +120,6 @@ DataMatrix & ConvExLayerContext :: getRows4backpropagate()
 DataMatrix & ConvExLayerContext :: getRowsOfDelta()
 {
 	return mRowsOfDelta;
-}
-
-DataVector & ConvExLayerContext :: getPaddingDelta()
-{
-	return mPaddingDelta;
 }
 
 ////////////////////////////////////////////////////////////

@@ -144,7 +144,7 @@ int eval( const char * model, const char * images, const char * labels )
 
 void usage( const char * name )
 {
-	printf( "%s --model <model file> [ --file <mnist file> ] [ --images <idx3 ubyte> --labels <idx1 ubyte> ]\n", name );
+	printf( "%s --model <model file> [ --file <csv file> ] [ --images <idx3 ubyte> --labels <idx1 ubyte> ]\n", name );
 }
 
 int main( const int argc, char * argv[] )

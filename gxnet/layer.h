@@ -121,14 +121,11 @@ private:
 class ConvLayer : public BaseLayer {
 public:
 	ConvLayer( const Dims & baseInDims, size_t filterCount, size_t filterSize );
-	ConvLayer( const Dims & baseInDims, const DataVector & filters, const Dims & filterDims,
-			const DataVector & biases );
+	ConvLayer( const Dims & baseInDims, const MDVector & filters, const DataVector & biases );
 
 	~ConvLayer();
 
-	const Dims & getFilterDims() const;
-
-	const DataVector & getFilters() const;
+	const MDVector & getFilters() const;
 
 	const DataVector & getBiases() const;
 
@@ -167,15 +164,14 @@ public:
 	static void copyOutDelta( const MDSpanRO & outDeltaMS, size_t filterSize, MDSpanRW * outPaddingMS );
 
 protected:
-	Dims mFilterDims;
-	DataVector mFilters, mBiases;
+	MDVector mFilters;
+	DataVector mBiases;
 };
 
 class ConvExLayer : public ConvLayer {
 public:
 	ConvExLayer( const Dims & baseInDims, size_t filterCount, size_t filterSize );
-	ConvExLayer( const Dims & baseInDims, const DataVector & filters, const Dims & filterDims,
-			const DataVector & biases );
+	ConvExLayer( const Dims & baseInDims, const MDVector & filters, const DataVector & biases );
 
 	~ConvExLayer();
 
@@ -193,7 +189,7 @@ protected:
 	virtual void backpropagate( BaseLayerContext * ctx, DataVector * inDelta ) const;
 
 private:
-	static void updateFiltersRows( const DataVector & filters, const Dims & filterDims,
+	static void updateFiltersRows( const MDVector & filters,
 			DataMatrix * rowsOfFilters, DataMatrix * rowsOfRot180Filters );
 
 private:

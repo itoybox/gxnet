@@ -152,7 +152,7 @@ int main( const int argc, char * argv[] )
 		.mTrainingCount = 0,
 		.mEvalCount = 0,
 		.mEpochCount = 5,
-		.mMiniBatchCount = 100,
+		.mMiniBatchCount = 16,
 		.mLearningRate = 3.0,
 		.mLambda = 5.0,
 		.mIsShuffle = true,

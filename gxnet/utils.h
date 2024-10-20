@@ -55,9 +55,12 @@ public:
 
 	static void printVector( const char * tag, const DataVector & data, bool useSciFmt = false );
 
-	static void printVector( const char * tag, const DataVector & data, const Dims & dims, bool useSciFmt = false );
+	static void printVector( const char * tag, const DataVector & data,
+			const Dims & dims, bool useSciFmt = false );
 
 	static void printMDSpan( const char * tag, const MDSpanRO & data, bool useSciFmt = false );
+
+	static void printMDVector( const char * tag, const MDVector & data, bool useSciFmt = false );
 
 	static bool save( const char * path, const Network & network );
 

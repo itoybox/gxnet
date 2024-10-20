@@ -124,14 +124,14 @@ void test( const CmdArgs_t & args )
 			layer->setActFunc( ActFunc::leakyReLU() );
 			network.addLayer( layer );
 
-			layer = new MaxPoolLayer( layer->getBaseOutDims(), 2 );
+			layer = new AvgPoolLayer( layer->getBaseOutDims(), 2 );
 			network.addLayer( layer );
 
 			layer = new ConvExLayer( layer->getBaseOutDims(), 8, 3 );
 			layer->setActFunc( ActFunc::leakyReLU() );
 			network.addLayer( layer );
 
-			layer = new MaxPoolLayer( layer->getBaseOutDims(), 2 );
+			layer = new AvgPoolLayer( layer->getBaseOutDims(), 2 );
 			network.addLayer( layer );
 
 			layer = new FullConnLayer( layer->getBaseOutDims(), 60 );
@@ -173,7 +173,7 @@ int main( const int argc, char * argv[] )
 		.mTrainingCount = 0,
 		.mEvalCount = 0,
 		.mEpochCount = 5,
-		.mMiniBatchCount = 128,
+		.mMiniBatchCount = 16,
 		.mLearningRate = 2.0,
 		.mLambda = 5.0,
 		.mIsShuffle = true,

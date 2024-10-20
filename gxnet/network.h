@@ -46,9 +46,9 @@ public:
 	BaseLayerContextPtrVector & getLayerCtx();
 
 	// mini batch workspace
-	DataVector & getBatchInput();
+	MDVector & getInputMD();
 
-	DataVector & getBatchTarget();
+	MDVector & getTargetMD();
 
 	// mini batch backward context
 	BackwardContext * getBatchBwdCtx( size_t index );
@@ -66,7 +66,7 @@ private:
 	TrainingData mTrainingData;
 	ChunkInfo mChunkInfo;
 
-	DataVector mBatchInput, mBatchTarget;
+	MDVector mInputMD, mTargetMD;
 };
 
 class Network {
@@ -94,6 +94,8 @@ public:
 
 	bool forward( const DataVector & input, DataVector * output ) const;
 
+	bool forward( const DataMatrix & input, DataMatrix * output ) const;
+
 	bool train( const DataMatrix & input, const DataMatrix & target, const CmdArgs_t & args,
 			DataVector * losses = nullptr );
 
@@ -105,7 +107,7 @@ private:
 
 	bool forward( NetworkContext * ctx ) const;
 
-	bool backward( NetworkContext * ctx, const DataVector & target ) const;
+	bool backward( NetworkContext * ctx, const MDVector & targetMD ) const;
 
 	void collect( NetworkContext * ctx ) const;
 

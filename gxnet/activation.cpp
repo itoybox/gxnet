@@ -37,17 +37,24 @@ int ActFunc :: getType() const
 	return mType;
 }
 
-void ActFunc :: activate( const MDSpanRO & inMS, MDSpanRW * outMS ) const
+void ActFunc :: activate( const MDVector & inMD, MDVector * outMD ) const
 {
-	const DataVector & input = inMS.data();
-	DataVector & output = outMS->data();
+	const DataType * input = std::begin( inMD.first );
+	DataType * output = std::begin( outMD->first );
+
+	size_t total = gx_dims_flatten_size( inMD.second );
 
 	if( eSigmoid == mType ) {
-		output = 1.0f / ( 1.0f + std::exp( - input ) );
+		//output = 1.0f / ( 1.0f + std::exp( - input ) );
+		std::transform( input, input + total, output, output,
+				[]( const DataType & a, const DataType & b ) {
+					return 1.0f / ( 1.0f + std::exp( - a ) );
+				}
+		);
 	}
 
 	if( eLeakyReLU == mType ) {
-		for( size_t i = 0; i < input.size(); i++ ) {
+		for( size_t i = 0; i < total; i++ ) {
 			if( input[ i ] < 0 ) {
 				output[ i ] = 0.01 * input[ i ];
 			} else if( input[ i ] > 1 ) {
@@ -57,15 +64,19 @@ void ActFunc :: activate( const MDSpanRO & inMS, MDSpanRW * outMS ) const
 	}
 
 	if( eTanh == mType ) {
-		output = std::tanh( input );
+		//output = std::tanh( input );
+		std::transform( input, input + total, output, output,
+				[]( const DataType & a, const DataType & b ) {
+					return std::tanh( a );
+				}
+		);
 	}
 
 	if( eSoftmax == mType ) {
-		size_t total = gx_dims_flatten_size( inMS.dims() );
-		size_t inSize = total / inMS.dims()[ 0 ];
+		size_t inSize = total / inMD.second[ 0 ];
 
-		const DataType * inPtr = std::begin( input );
-		DataType * outPtr = std::begin( output );
+		const DataType * inPtr = input;
+		DataType * outPtr = output;
 
 		DataVector tmpIn( inSize ), tmpOut( inSize );
 		for( size_t index = 0; index < total; index += inSize, inPtr += inSize, outPtr += inSize ) {
@@ -80,32 +91,43 @@ void ActFunc :: activate( const MDSpanRO & inMS, MDSpanRW * outMS ) const
 	}
 }
 
-void ActFunc :: derivate( const MDSpanRO & outMS, MDSpanRW * outDeltaMS ) const
+void ActFunc :: derivate( const MDVector & outMD, MDVector * outDeltaMD ) const
 {
-	const DataVector & output = outMS.data();
-	DataVector & outDelta = outDeltaMS->data();
+	const DataType * output = std::begin( outMD.first );
+	DataType * outDelta = std::begin( outDeltaMD->first );
+
+	size_t total = gx_dims_flatten_size( outMD.second );
 
 	if( eSigmoid == mType ) {
-		outDelta = output * ( 1 - output ) * ( outDelta );
+		//outDelta = output * ( 1 - output ) * ( outDelta );
+		std::transform( output, output + total, outDelta, outDelta,
+				[]( const DataType & a, const DataType & b ) {
+					return a * ( 1 - a ) * b;
+				}
+		);
 	}
 
 	if( eLeakyReLU == mType ) {
-		for( size_t i = 0; i < output.size(); i++ ) {
+		for( size_t i = 0; i < total; i++ ) {
 			outDelta[ i ] = outDelta[ i ] * ( output[ i ] < 0 || output[ i ] > 1 ? 0.01 : 1 );
 		}
 	}
 
 	if( eTanh == mType ) {
-		outDelta = outDelta * ( 1 - output * output );
+		//outDelta = outDelta * ( 1 - output * output );
+		std::transform( output, output + total, outDelta, outDelta,
+				[]( const DataType & a, const DataType & b ) {
+					return b * ( 1 - a * a );
+				}
+		);
 	}
 
 	if( eSoftmax == mType ) {
-		size_t total = gx_dims_flatten_size( outMS.dims() );
-		size_t outSize = total / outMS.dims()[ 0 ];
+		size_t outSize = total / outMD.second[ 0 ];
 
 		DataVector dOutput( outSize ), dSoftmax( outSize );
 
-		DataType * outDeltaPtr = std::begin( outDelta );
+		DataType * outDeltaPtr = outDelta;
 
 		for( size_t index = 0; index < total; index += outSize, outDeltaPtr += outSize ) {
 			std::copy( outDeltaPtr, outDeltaPtr + outSize, std::begin( dOutput ) );
@@ -119,7 +141,8 @@ void ActFunc :: derivate( const MDSpanRO & outMS, MDSpanRW * outDeltaMS ) const
 							-output[ index + k ] * output[ index + j ];
 				}
 
-				outDelta[ index + j ] = gx_inner_product( std::begin( dOutput ), std::begin( dSoftmax ), dOutput.size() );
+				outDelta[ index + j ] = gx_inner_product( std::begin( dOutput ),
+						std::begin( dSoftmax ), dOutput.size() );
 			}
 		}
 	}

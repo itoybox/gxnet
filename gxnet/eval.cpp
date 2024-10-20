@@ -21,18 +21,18 @@ void gx_eval( const char * tag, Network & network, DataMatrix & input, DataMatri
 
 	int correct = 0;
 
-	for( size_t i = 0; i < input.size(); i++ ) {
+	DataMatrix output;
 
-		DataVector output;
+	bool ret = network.forward( input, &output );
 
-		bool ret = network.forward( input[ i ], &output );
+	if( ! ret ) {
+		printf( "forward fail\n" );
+		return;
+	}
 
-		if( ! ret ) {
-			printf( "forward fail\n" );
-			return;
-		}
+	for( size_t i = 0; i < output.size(); i++ ) {
 
-		int outputType = Utils::max_index( std::begin( output ), std::end( output ) );
+		int outputType = Utils::max_index( std::begin( output[ i ] ), std::end( output[ i ] ) );
 		int targetType = Utils::max_index( std::begin( target[ i ] ), std::end( target[ i ] ) );
 
 		if( gx_is_inner_debug ) printf( "forward %d, index %zu, %d %d\n", ret, i, outputType, targetType );
@@ -42,8 +42,8 @@ void gx_eval( const char * tag, Network & network, DataMatrix & input, DataMatri
 		confusionMatrix[ targetType ][ outputType ] += 1;
 		targetTotal[ targetType ] += 1;
 
-		for( size_t j = 0; gx_is_inner_debug && j < output.size() && j < 10; j++ ) {
-			printf( "\t%zu %.8f %.8f\n", j, output[ j ], target[ i ][ j ] );
+		for( size_t j = 0; gx_is_inner_debug && j < output[ i ].size() && j < 10; j++ ) {
+			printf( "\t%zu %.8f %.8f\n", j, output[ i ][ j ], target[ i ][ j ] );
 		}
 	}
 

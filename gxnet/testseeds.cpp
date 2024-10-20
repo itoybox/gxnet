@@ -202,7 +202,7 @@ int main( const int argc, char * argv[] )
 		.mThreadCount = 2,
 		.mEvalCount = 42,
 		.mEpochCount = 10,
-		.mMiniBatchCount = 2,
+		.mMiniBatchCount = 1,
 		.mLearningRate = 0.1,
 		.mIsShuffle = true,
 	};

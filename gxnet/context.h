@@ -3,6 +3,7 @@
 #include "common.h"
 
 #include <vector>
+#include <utility>
 
 namespace gxnet {
 
@@ -18,9 +19,9 @@ public:
 
 	virtual ~BackwardContext();
 
-	MDSpanRW & getDeltaMS();
+	MDVector & getDeltaMD();
 
-	const MDSpanRO & getDeltaRO() const;
+	const MDVector & getDeltaMD() const;
 
 	DataMatrix & getGradients();
 
@@ -29,10 +30,7 @@ public:
 protected:
 	DataMatrix mGradients;
 
-	DataVector mDelta;
-	MDSpanRW mDeltaMS;
-
-	MDSpanRO mDeltaRO;
+	MDVector mDeltaMD;
 };
 
 class BaseLayerContext : public BackwardContext {
@@ -41,22 +39,16 @@ public:
 
 	virtual ~BaseLayerContext();
 
-	void setInMS( const MDSpanRO * inMS );
+	void setInMD( const MDVector * inMD );
 
-	const MDSpanRO & getInMS();
+	const MDVector & getInMD();
 
-	MDSpanRW & getOutMS();
-
-	const MDSpanRO & getOutRO();
+	MDVector & getOutMD();
 
 protected:
-	const MDSpanRO * mInMS;
+	const MDVector * mInMD;
 
-	MDSpanRW mOutMS;
-
-	MDSpanRO mOutRO;
-
-	DataVector mOutput;
+	MDVector mOutMD;
 };
 
 class FullConnLayerContext : public BaseLayerContext {
@@ -73,7 +65,18 @@ protected:
 	DataVector mTempWeights, mTempGradients;
 };
 
-class ConvExLayerContext : public BaseLayerContext {
+class ConvLayerContext : public BaseLayerContext {
+public:
+	ConvLayerContext();
+	~ConvLayerContext();
+
+	MDVector & getPaddingDeltaMD();
+
+private:
+	MDVector mPaddingDeltaMD;
+};
+
+class ConvExLayerContext : public ConvLayerContext {
 public:
 	ConvExLayerContext();
 	~ConvExLayerContext();
@@ -86,12 +89,9 @@ public:
 
 	DataMatrix & getRowsOfDelta();
 
-	DataVector & getPaddingDelta();
-
 private:
 	DataMatrix mRows4collectGradient, mRows4calcOutput,
 			mRows4backpropagate, mRowsOfDelta;
-	DataVector mPaddingDelta;
 };
 
 class DropoutLayerContext : public BaseLayerContext {

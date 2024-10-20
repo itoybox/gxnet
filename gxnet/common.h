@@ -21,19 +21,17 @@ extern bool gx_is_inner_debug;
 const DataType gx_debug_weight = 0.1;
 
 namespace stdx = std::experimental::parallelism_v2;
-
 typedef stdx::native_simd< DataType > DataSimd;
-
-typedef std::valarray< DataType > DataVector;
-typedef std::vector< DataVector > DataMatrix;
-
-typedef std::vector< bool > BoolVector;
-typedef std::vector< int > IntVector;
 
 typedef std::vector< size_t > Dims;
 typedef std::vector< Dims > DimsList;
 
-class SpanRO;
+typedef std::valarray< DataType > DataVector;
+typedef std::vector< DataVector > DataMatrix;
+typedef std::pair< DataVector, Dims > MDVector;
+
+typedef std::vector< bool > BoolVector;
+typedef std::vector< int > IntVector;
 
 DataType gx_inner_product( const DataType * a, const DataType * b, size_t count );
 
@@ -89,19 +87,21 @@ inline void gx_string2valarray( const std::string & buff, DataVector * vec, cons
 
 class MDSpanRW {
 public:
-	MDSpanRW( DataVector & data, const Dims & dims )
-			: mData( data ), mDims( dims ) {
+	MDSpanRW( MDVector & data )
+		: mData( std::begin( data.first ) ), mDims( data.second ) {
 	}
 
-	MDSpanRW( DataVector & data )
-			: mData( data ) {
+	MDSpanRW( DataType * data, const Dims & dims )
+		: mData( data ), mDims( dims ) {
+	}
+
+	MDSpanRW( DataVector & data, const Dims & dims )
+		: mData( std::begin( data ) ), mDims( dims ) {
 	}
 
 	~MDSpanRW() {}
 
-	DataVector & data() { return mData; }
-
-	Dims & dims() { return mDims; }
+	const Dims & dims() { return mDims; }
 
 	size_t dim( size_t index ) const {
 		assert( index < mDims.size() );
@@ -129,23 +129,25 @@ public:
 	}
 
 private:
-	DataVector & mData;
-	Dims mDims;
+	DataType * mData;
+	const Dims & mDims;
 };
 
 class MDSpanRO {
 public:
-	MDSpanRO( const DataVector & data, const Dims & dims )
-			: mData( data ), mDims( dims ) {
+	MDSpanRO( const MDVector & data )
+		: mData( std::begin( data.first ) ), mDims( data.second ) {
 	}
 
-	MDSpanRO( MDSpanRW & other )
-		: mData( other.data() ), mDims( other.dims() ) {
+	MDSpanRO( const DataType * data, const Dims & dims )
+		: mData( data ), mDims( dims ) {
+	}
+
+	MDSpanRO( const DataVector & data, const Dims & dims )
+		: mData( std::begin( data ) ), mDims( dims ) {
 	}
 
 	~MDSpanRO() {}
-
-	const DataVector & data() const { return mData; };
 
 	const Dims & dims() const { return mDims; }
 
@@ -175,7 +177,7 @@ public:
 	}
 
 private:
-	const DataVector & mData;
+	const DataType * mData;
 	const Dims & mDims;
 };
 

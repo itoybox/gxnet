@@ -178,8 +178,6 @@ bool Utils :: loadMnistImages( int limitCount, const char * path, DataMatrix * i
 
 	bool ret = true;
 
-	if( limitCount > 0 ) imageCount = std::min( limitCount, imageCount );
-
 	images->reserve( imageCount );
 
 	unsigned char * buff = ( unsigned char * )malloc( imageSize );
@@ -227,8 +225,6 @@ bool Utils :: loadMnistLabels( int limitCount, const char * path, DataMatrix * l
 	labelCount = ntohl( labelCount );
 
 	bool ret = true;
-
-	if( limitCount > 0 ) labelCount = std::min( limitCount, labelCount );
 
 	labels->reserve( labelCount );
 
@@ -292,14 +288,14 @@ void Utils :: printCtx( const char * tag, const BaseLayerContextPtrVector & data
 	printf( "%s.output { %ld }\n", tag, data.size() );
 	for( size_t i = 0; i < data.size(); i++ ) {
 		printf( "#%ld ", i );
-		for( auto & item : data[ i ]->getOutMS().data() ) printf( "%8e ", item );
+		for( auto & item : data[ i ]->getOutMD().first ) printf( "%8e ", item );
 		printf( "\n" );
 	}
 
 	printf( "%s.delta { %ld }\n", tag, data.size() );
 	for( size_t i = 0; i < data.size(); i++ ) {
 		printf( "#%ld ", i );
-		for( auto & item : data[ i ]->getDeltaMS().data() ) printf( "%8e ", item );
+		for( auto & item : data[ i ]->getDeltaMD().first ) printf( "%8e ", item );
 		printf( "\n" );
 	}
 
@@ -314,7 +310,7 @@ void Utils :: printCtx( const char * tag, const BackwardContextPtrVector & data 
 	printf( "%s.delta { %ld }\n", tag, data.size() );
 	for( size_t i = 0; i < data.size(); i++ ) {
 		printf( "#%ld ", i );
-		for( auto & item : data[ i ]->getDeltaMS().data() ) printf( "%8e ", item );
+		for( auto & item : data[ i ]->getDeltaMD().first ) printf( "%8e ", item );
 		printf( "\n" );
 	}
 
@@ -327,6 +323,13 @@ void Utils :: printCtx( const char * tag, const BackwardContextPtrVector & data 
 void Utils :: printVector( const char * tag, const DataVector & data, const Dims & dims, bool useSciFmt )
 {
 	MDSpanRO ms( data, dims );
+
+	printMDSpan( tag, ms, useSciFmt );
+}
+
+void Utils :: printMDVector( const char * tag, const MDVector & data, bool useSciFmt )
+{
+	MDSpanRO ms( data );
 
 	printMDSpan( tag, ms, useSciFmt );
 }
@@ -404,8 +407,8 @@ bool Utils :: save( const char * path, const Network & network )
 		}
 		if( BaseLayer::eConv == layer->getType() || BaseLayer::eConvEx == layer->getType() ) {
 			ConvLayer * conv = (ConvLayer*)layer;
-			fprintf( fp, "Weights: FilterDims = %s;\n", gx_vector2string( conv->getFilterDims() ).c_str() );
-			fprintf( fp, "%s\n", gx_vector2string( conv->getFilters() ).c_str() );
+			fprintf( fp, "Weights: FilterDims = %s;\n", gx_vector2string( conv->getFilters().second ).c_str() );
+			fprintf( fp, "%s\n", gx_vector2string( conv->getFilters().first ).c_str() );
 			fprintf( fp, "Biases: Count = %zu;\n", conv->getBiases().size() );
 			fprintf( fp, "%s\n", gx_vector2string( conv->getBiases() ).c_str() );
 		}
@@ -488,26 +491,26 @@ bool Utils :: load( const char * path, Network * network )
 			// Weights: FilterDims = f,c,x,y;
 			if( ! std::getline( fp, line ) ) return false;
 
-			Dims filterDims;
-			gx_string2vector( getString( line, "FilterDims = (\\S+);", "0" ), &filterDims );
+			MDVector filters;
+			gx_string2vector( getString( line, "FilterDims = (\\S+);", "0" ), &filters.second );
 
 			if( ! std::getline( fp, line ) ) return false;
 
-			DataVector filters( gx_dims_flatten_size( filterDims ) );
-			gx_string2valarray( line, &filters );
+			filters.first.resize( gx_dims_flatten_size( filters.second ) );
+			gx_string2valarray( line, &filters.first );
 
 			// Biases: Count = xx;
 			if( ! std::getline( fp, line ) ) return false;
 
-			DataVector biases( filterDims[ 0 ] );
+			DataVector biases( filters.second[ 0 ] );
 
 			if( ! std::getline( fp, line ) ) return false;
 			gx_string2valarray( line, &biases );
 
 			if( BaseLayer::eConv == layerType ) {
-				layer = new ConvLayer( baseInDims, filters, filterDims, biases );
+				layer = new ConvLayer( baseInDims, filters, biases );
 			} else {
-				layer = new ConvExLayer( baseInDims, filters, filterDims, biases );
+				layer = new ConvExLayer( baseInDims, filters, biases );
 			}
 		}
 		if( BaseLayer::eMaxPool == layerType ) {
