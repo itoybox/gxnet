@@ -41,7 +41,7 @@ public:
 
 	void forward( BaseLayerContext * ctx ) const;
 
-	void backward( BaseLayerContext * ctx, DataVector * inDelta ) const;
+	void backward( BaseLayerContext * ctx, MDVector * inDelta ) const;
 
 	BaseLayerContext * createCtx() const;
 
@@ -53,7 +53,7 @@ protected:
 
 	virtual void calcOutput( BaseLayerContext * ctx ) const = 0;
 
-	virtual void backpropagate( BaseLayerContext * ctx, DataVector * inDelta ) const = 0;
+	virtual void backpropagate( BaseLayerContext * ctx, MDVector * inDelta ) const = 0;
 
 public:
 	int getType() const;
@@ -88,9 +88,9 @@ public:
 	~FullConnLayer();
 
 	// for debug
-	void setWeights( const DataMatrix & weights, const DataVector & biases );
+	void setWeights( const MDVector & weights, const DataVector & biases );
 
-	const DataMatrix & getWeights() const;
+	const MDVector & getWeights() const;
 
 	const DataVector & getBiases() const;
 
@@ -111,10 +111,10 @@ protected:
 	 */
 	virtual void calcOutput( BaseLayerContext * ctx ) const;
 
-	virtual void backpropagate( BaseLayerContext * ctx, DataVector * inDelta ) const;
+	virtual void backpropagate( BaseLayerContext * ctx, MDVector * inDelta ) const;
 
 private:
-	DataMatrix mWeights;
+	MDVector mWeights;
 	DataVector mBiases;
 };
 
@@ -148,20 +148,20 @@ protected:
 	 */
 	virtual void calcOutput( BaseLayerContext * ctx ) const;
 
-	virtual void backpropagate( BaseLayerContext * ctx, DataVector * inDelta ) const;
+	virtual void backpropagate( BaseLayerContext * ctx, MDVector * inDelta ) const;
 
 public:
 
-	static DataType forwardConv( const MDSpanRO & inMS, size_t sampleIndex, size_t filterIndex,
-			size_t beginX, size_t beginY, const MDSpanRO & filterMS );
+	static DataType forwardConv( const MDSpanRO & inRO, size_t sampleIndex, size_t filterIndex,
+			size_t beginX, size_t beginY, const MDSpanRO & filterRO );
 
-	static DataType backwardConv( const MDSpanRO & inMS, size_t sampleIndex, size_t channelIndex,
-			size_t beginX, size_t beginY, const MDSpanRO & filterMS );
+	static DataType backwardConv( const MDSpanRO & inRO, size_t sampleIndex, size_t channelIndex,
+			size_t beginX, size_t beginY, const MDSpanRO & filterRO );
 
-	static DataType gradientConv( const MDSpanRO & inMS, size_t sampleIndex, size_t filterIndex,
-			size_t channelIndex, size_t beginX, size_t beginY, const MDSpanRO & filterMS );
+	static DataType gradientConv( const MDSpanRO & inRO, size_t sampleIndex, size_t filterIndex,
+			size_t channelIndex, size_t beginX, size_t beginY, const MDSpanRO & filterRO );
 
-	static void copyOutDelta( const MDSpanRO & outDeltaMS, size_t filterSize, MDSpanRW * outPaddingMS );
+	static void copyOutDelta( const MDSpanRO & outDeltaRO, size_t filterSize, MDSpanRW * outPaddingRW );
 
 protected:
 	MDVector mFilters;
@@ -186,14 +186,10 @@ protected:
 
 	virtual void calcOutput( BaseLayerContext * ctx ) const;
 
-	virtual void backpropagate( BaseLayerContext * ctx, DataVector * inDelta ) const;
+	virtual void backpropagate( BaseLayerContext * ctx, MDVector * inDelta ) const;
 
 private:
-	static void updateFiltersRows( const MDVector & filters,
-			DataMatrix * rowsOfFilters, DataMatrix * rowsOfRot180Filters );
-
-private:
-	DataMatrix mRowsOfFilters, mRowsOfRot180Filters;
+	MDVector mRowsOfRot180Filters;
 };
 
 class MaxPoolLayer : public BaseLayer {
@@ -211,13 +207,13 @@ protected:
 
 	virtual void calcOutput( BaseLayerContext * ctx ) const;
 
-	virtual void backpropagate( BaseLayerContext * ctx, DataVector * inDelta ) const;
+	virtual void backpropagate( BaseLayerContext * ctx, MDVector * inDelta ) const;
 
 private:
-	DataType pool( const MDSpanRO & inMS, size_t sampleIndex, size_t filterIndex, size_t beginX, size_t beginY ) const;
+	DataType pool( const MDSpanRO & inRO, size_t sampleIndex, size_t filterIndex, size_t beginX, size_t beginY ) const;
 
-	void unpool( const MDSpanRO & inMS, size_t sampleIndex, size_t filterIndex, size_t beginX, size_t beginY,
-			const DataType maxValue, DataType outDelta, MDSpanRW * inDeltaMS ) const;
+	void unpool( const MDSpanRO & inRO, size_t sampleIndex, size_t filterIndex, size_t beginX, size_t beginY,
+			const DataType maxValue, DataType outDelta, MDSpanRW * inDeltaRW ) const;
 
 private:
 	size_t mPoolSize;
@@ -238,13 +234,13 @@ protected:
 
 	virtual void calcOutput( BaseLayerContext * ctx ) const;
 
-	virtual void backpropagate( BaseLayerContext * ctx, DataVector * inDelta ) const;
+	virtual void backpropagate( BaseLayerContext * ctx, MDVector * inDelta ) const;
 
 private:
-	DataType pool( const MDSpanRO & inMS, size_t sampleIndex, size_t filterIndex, size_t beginX, size_t beginY ) const;
+	DataType pool( const MDSpanRO & inRO, size_t sampleIndex, size_t filterIndex, size_t beginX, size_t beginY ) const;
 
-	void unpool( const MDSpanRO & inMS, size_t sampleIndex, size_t filterIndex, size_t beginX, size_t beginY,
-			const DataType maxValue, DataType outDelta, MDSpanRW * inDeltaMS ) const;
+	void unpool( const MDSpanRO & inRO, size_t sampleIndex, size_t filterIndex, size_t beginX, size_t beginY,
+			const DataType maxValue, DataType outDelta, MDSpanRW * inDeltaRW ) const;
 
 private:
 	size_t mPoolSize;
@@ -265,7 +261,7 @@ protected:
 
 	virtual void calcOutput( BaseLayerContext * ctx ) const;
 
-	virtual void backpropagate( BaseLayerContext * ctx, DataVector * inDelta ) const;
+	virtual void backpropagate( BaseLayerContext * ctx, MDVector * inDelta ) const;
 
 private:
 	DataType mDropRate;

@@ -288,20 +288,20 @@ void Utils :: printCtx( const char * tag, const BaseLayerContextPtrVector & data
 	printf( "%s.output { %ld }\n", tag, data.size() );
 	for( size_t i = 0; i < data.size(); i++ ) {
 		printf( "#%ld ", i );
-		for( auto & item : data[ i ]->getOutMD().first ) printf( "%8e ", item );
+		for( auto & item : data[ i ]->getOutput().first ) printf( "%8e ", item );
 		printf( "\n" );
 	}
 
 	printf( "%s.delta { %ld }\n", tag, data.size() );
 	for( size_t i = 0; i < data.size(); i++ ) {
 		printf( "#%ld ", i );
-		for( auto & item : data[ i ]->getDeltaMD().first ) printf( "%8e ", item );
+		for( auto & item : data[ i ]->getDelta().first ) printf( "%8e ", item );
 		printf( "\n" );
 	}
 
 	printf( "%s.gradients { %ld }\n", tag, data.size() );
 	for( size_t i = 0; i < data.size(); i++ ) {
-		printMatrix( std::to_string( i ).c_str(), data[ i ]->getGradients() );
+		printMDVector( std::to_string( i ).c_str(), data[ i ]->getGradients() );
 	}
 }
 
@@ -310,13 +310,13 @@ void Utils :: printCtx( const char * tag, const BackwardContextPtrVector & data 
 	printf( "%s.delta { %ld }\n", tag, data.size() );
 	for( size_t i = 0; i < data.size(); i++ ) {
 		printf( "#%ld ", i );
-		for( auto & item : data[ i ]->getDeltaMD().first ) printf( "%8e ", item );
+		for( auto & item : data[ i ]->getDelta().first ) printf( "%8e ", item );
 		printf( "\n" );
 	}
 
 	printf( "%s.gradients { %ld }\n", tag, data.size() );
 	for( size_t i = 0; i < data.size(); i++ ) {
-		printMatrix( std::to_string( i ).c_str(), data[ i ]->getGradients() );
+		printMDVector( std::to_string( i ).c_str(), data[ i ]->getGradients() );
 	}
 }
 
@@ -392,9 +392,11 @@ bool Utils :: save( const char * path, const Network & network )
 
 		if( BaseLayer::eFullConn == layer->getType() ) {
 			FullConnLayer * fc = (FullConnLayer*)layer;
-			fprintf( fp, "Weights: Count = %zu;\n", fc->getWeights().size() );
-			for( size_t k = 0; k < fc->getWeights().size(); k++ ) {
-				fprintf( fp, "%s\n", gx_vector2string( fc->getWeights()[ k ] ).c_str() );
+			MDSpanRO weightsRO( fc->getWeights() );
+			fprintf( fp, "Weights: Count = %zu;\n", weightsRO.dim( 0 ) );
+			for( size_t k = 0; k < weightsRO.dim( 0 ); k++ ) {
+				DataVector tmp( weightsRO.data() + k * weightsRO.dim( 1 ), weightsRO.dim( 1 ) );
+				fprintf( fp, "%s\n", gx_vector2string( tmp ).c_str() );
 			}
 			fprintf( fp, "Biases: Count = %zu;\n", fc->getBiases().size() );
 			fprintf( fp, "%s\n", gx_vector2string( fc->getBiases() ).c_str() );
@@ -462,19 +464,24 @@ bool Utils :: load( const char * path, Network * network )
 		gx_string2vector( getString( line, "BaseInDims = (\\S+);", "0" ), &baseInDims );
 
 		if( BaseLayer::eFullConn == layerType ) {
-			// Weights: Count = xx; InSize = xx;
+			// Weights: Count = xx;
 			if( ! std::getline( fp, line ) ) return false;
 
 			int count = std::stoi( getString( line, "Count = (\\S+);", "0" ) );
 
 			layer = new FullConnLayer( baseInDims, count );
 
-			DataMatrix weights( count );
+			MDVector weights;
+			weights.second = { (size_t)count, layer->getBaseInSize() };
+			weights.first.resize( gx_dims_flatten_size( weights.second ) );
 			for( int i = 0; i < count; i++ ) {
 				if( ! std::getline( fp, line ) ) return false;
 
-				weights[ i ].resize( layer->getBaseInSize() );
-				gx_string2valarray( line, &( weights[ i ] ) );
+				DataVector tmp( layer->getBaseInSize() );
+				gx_string2valarray( line, &tmp );
+
+				std::copy( std::begin( tmp ), std::end( tmp ),
+						std::begin( weights.first ) + i * layer->getBaseInSize() );
 			}
 
 			// Biases: Count = xx;
@@ -618,7 +625,7 @@ void Utils :: getCmdArgs( int argc, char * const argv[],
 				printf( "\t--lr <learning rate> default is %.2f\n", defaultArgs.mLearningRate );
 				printf( "\t--lambda <lambda> default is %.2f\n", defaultArgs.mLambda );
 				printf( "\t--shuffle <shuffle> 0 for no shuffle, otherwise shuffle, default is %d\n", defaultArgs.mIsShuffle );
-				printf( "\t--dataaut <dataaug> 0 for no dataaug, otherwise dataaug, default is %d\n", defaultArgs.mIsShuffle );
+				printf( "\t--dataaug <dataaug> 0 for no dataaug, otherwise dataaug, default is %d\n", defaultArgs.mIsShuffle );
 				printf( "\t--debug debug mode on\n" );
 				printf( "\t--help show usage\n" );
 				exit( 0 );
@@ -634,6 +641,9 @@ void Utils :: getCmdArgs( int argc, char * const argv[],
 	printf( "\tmodelPath %s\n", NULL == args->mModelPath ? "NULL" : args->mModelPath );
 	printf( "\tthreadCount %d, hardware_concurrency: %u\n", args->mThreadCount, std::thread::hardware_concurrency() );
 	printf( "\tsimd::size %zu\n", DataSimd::size() );
+#ifdef ENABLE_EIGEN
+	printf( "\tusing eigen\n" );
+#endif
 	printf( "\n" );
 }
 

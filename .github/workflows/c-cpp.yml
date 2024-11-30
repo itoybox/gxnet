@@ -27,3 +27,5 @@ jobs:
       run: git lfs pull      
     - name: launch mnist
       run: cd gxnet; sh launch_mnist.sh
+    - name: launch emnist
+      run: cd gxnet; sh launch_emnist.sh

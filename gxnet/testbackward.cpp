@@ -93,8 +93,16 @@ void testNetwork()
 {
 	//https://alexander-schiendorfer.github.io/2020/02/24/a-worked-example-of-backprop.html
 
-	DataMatrix v = { { 6, -2 }, { -3, 5 } };
-	DataMatrix w = { { 1, 0.25 }, { -2, 2 } };
+	MDVector v = {
+		{ 6, -2, -3, 5 },
+		{ 2, 2 }
+	};
+
+	MDVector w = {
+		{ 1, 0.25, -2, 2 },
+		{ 2, 2 }
+	};
+
 	DataVector b = { 0, 0 };
 
 	DataMatrix input = { { 3, 1}, { -1, 4 } };

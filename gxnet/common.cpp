@@ -1,6 +1,11 @@
 
 #include "common.h"
 
+#ifdef ENABLE_EIGEN
+#include <Eigen/Eigen>
+#include <unsupported/Eigen/KroneckerProduct>
+#endif
+
 namespace gxnet {
 
 bool gx_is_inner_debug = false;
@@ -141,6 +146,123 @@ void gx_vs_product( const DataType * a, const DataType & b, DataType * c, size_t
 	}
 
 	for( ; idx < count; idx++ ) c[ idx ] = b * a[ idx ];
+}
+
+void gx_kronecker_product( const DataType * a, size_t aCount,
+		const DataType * b, size_t bCount, DataType * c, size_t count )
+{
+#ifdef ENABLE_EIGEN
+
+	Eigen::Map< Eigen::Matrix< DataType, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor > >
+			mpA( (DataType*)a, 1, aCount ), mpB( (DataType*)b, 1, bCount ), mpC( c, 1, count );
+
+	mpC = Eigen::kroneckerProduct( mpA, mpB );
+
+#else
+
+	for( size_t i = 0; i < aCount; i++ ) {
+		gx_vs_product( b, a[ i ], c + i * bCount, bCount );
+	}
+
+#endif
+}
+
+void gx_rows_product( const MDSpanRO & a, const MDSpanRO & b,
+		const DataVector & biases, bool isABiases, DataType * c, size_t count )
+{
+	size_t aRows = a.dim( 0 ), bRows = b.dim( 0 ), aCols = a.dim( 1 );
+
+	Dims dims = { aRows, bRows };
+
+	assert( a.dim( 1 ) == a.dim( 1 ) );
+	assert( gx_dims_flatten_size( dims ) == count );
+
+	MDSpanRW rw( c, dims );
+
+#ifdef ENABLE_EIGEN
+	Eigen::Map< Eigen::Matrix< DataType, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor > >
+			mpA( (DataType*)a.data(), aRows, aCols ), mpC( c, aRows, bRows );
+
+	Eigen::Map< Eigen::Matrix< DataType, Eigen::Dynamic, Eigen::Dynamic, Eigen::ColMajor > >
+			mpB( (DataType*)b.data(), aCols, bRows );
+
+	mpC = mpA * mpB;
+
+	if( isABiases ) {
+		for( size_t i = 0; i < aRows; i++ ) mpC.row( i ).array() += biases[ i ];
+	} else {
+		for( size_t j = 0; j < bRows; j++ ) mpC.col( j ).array() += biases[ j ];
+	}
+
+#else
+	const DataType * aPtr = a.data();
+
+	for( size_t i = 0; i < aRows; i++, aPtr += aCols ) {
+		const DataType * bPtr = b.data();
+		for( size_t j = 0; j < bRows; j++, bPtr += aCols ) {
+			rw( i, j ) = gx_inner_product( aPtr, bPtr, aCols )
+					+ ( isABiases ? biases[ i ] : biases[ j ] );
+		}
+	}
+#endif
+}
+
+void gx_rows_product( const MDSpanRO & a, const MDSpanRO & b, DataType * c, size_t count )
+{
+	size_t aRows = a.dim( 0 ), bRows = b.dim( 0 ), aCols = a.dim( 1 );
+
+	Dims dims = { aRows, bRows };
+
+	assert( a.dim( 1 ) == b.dim( 1 ) );
+	assert( gx_dims_flatten_size( dims ) == count );
+
+#ifdef ENABLE_EIGEN
+	Eigen::Map< Eigen::Matrix< DataType, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor > >
+			mpA( (DataType*)a.data(), aRows, aCols ), mpC( c, aRows, bRows );
+
+	Eigen::Map< Eigen::Matrix< DataType, Eigen::Dynamic, Eigen::Dynamic, Eigen::ColMajor > >
+			mpB( (DataType*)b.data(), aCols, bRows );
+
+	mpC = mpA * mpB;
+#else
+	const DataType * aPtr = a.data();
+
+	MDSpanRW rw( c, dims );
+
+	for( size_t i = 0; i < aRows; i++, aPtr += aCols ) {
+		const DataType * bPtr = b.data();
+		for( size_t j = 0; j < bRows; j++, bPtr += aCols ) {
+			rw( i, j ) = gx_inner_product( aPtr, bPtr, aCols );
+		}
+	}
+
+#endif
+}
+
+void gx_matmul( const MDSpanRO & a, const MDSpanRO & b, MDVector *c )
+{
+	size_t aRows = a.dim( 0 ), aCols = a.dim( 1 ), bCols = b.dim( 1 );
+
+	Dims dims = { aRows, bCols };
+	c->first.resize( gx_dims_flatten_size( dims ) );
+
+#ifdef ENABLE_EIGEN
+	Eigen::Map< Eigen::Matrix< DataType, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor > >
+			mpA( (DataType*)a.data(), aRows, aCols ), mpB( (DataType*)b.data(), aCols, bCols ),
+			mpC( std::begin( c->first ), aRows, bCols );
+
+	mpC = mpA * mpB;
+#else
+	MDSpanRW rw( c->first, dims );
+
+	for( size_t i = 0; i < aRows; i++ ) {
+		for( size_t k = 0; k < aCols; k++ ) {
+			for( size_t j = 0; j < bCols; j++ ) {
+				rw( i, j ) += a( i, k ) * b( k, j );	
+			}
+		}
+	}
+#endif
 }
 
 }; // namespace gxnet;

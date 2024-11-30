@@ -39,29 +39,31 @@ void testConvLayer()
 
 	std::unique_ptr< BaseLayerContext > ctx( conv.createCtx() );
 
-	ctx->setInMD( &inMD );
+	ctx->setInput( &inMD );
 
 	conv.forward( ctx.get() );
 
-	Utils::printMDVector( "conv.output", ctx->getOutMD() );
-	Utils::printVector( "conv.output", ctx->getOutMD().first );
+	Utils::printMDVector( "conv.output", ctx->getOutput() );
+	Utils::printVector( "conv.output", ctx->getOutput().first );
 
-	DataVector inDelta( inMD.first.size() );
+	MDVector inDelta;
+	inDelta.first.resize( inMD.first.size() );
+	inDelta.second = inMD.second;
 
-	MDVector & deltaData = ctx->getDeltaMD();
+	MDVector & deltaData = ctx->getDelta();
 
 	for( size_t i = 0; i < deltaData.first.size(); i++ ) deltaData.first[ i ] = i * 0.1;
 
 	conv.backward( ctx.get(), &inDelta );
 
-	Utils::printMDVector( "conv.outDelta", ctx->getDeltaMD() );
+	Utils::printMDVector( "conv.outDelta", ctx->getDelta() );
 
-	Utils::printVector( "conv.inDelta", inDelta, inMD.second );
-	Utils::printVector( "conv.inDelta", inDelta );
+	Utils::printMDVector( "conv.inDelta", inDelta );
+	Utils::printVector( "conv.inDelta", inDelta.first );
 
 	conv.collectGradients( ctx.get() );
 
-	Utils::printVector( "filters.grad", ctx->getGradients()[ 0 ], filters.second );
+	Utils::printMDVector( "filters.grad", ctx->getGradients() );
 
 	std::unique_ptr< Optim > optim( Optim::SGD( 0.1, 1 ) );
 
@@ -84,26 +86,28 @@ void testMaxPoolLayer()
 	MaxPoolLayer maxpool( { 1, 4, 4 }, 2 );
 
 	std::unique_ptr< BaseLayerContext > ctx( maxpool.createCtx() );
-	ctx->setInMD( &inMD );
+	ctx->setInput( &inMD );
 
 	maxpool.forward( ctx.get() );
 
-	Utils::printMDVector( "maxpool.output", ctx->getOutMD() );
+	Utils::printMDVector( "maxpool.output", ctx->getOutput() );
 
-	DataVector inDelta( input.size() );
+	MDVector inDelta;
 
-	ctx->getDeltaMD().first = 0.5;
+	inDelta.second = ctx->getInput().second;
+	inDelta.first.resize( input.size() );
+	ctx->getDelta().first = 0.5;
 
 	maxpool.backward( ctx.get(), &inDelta );
 
-	Utils::printVector( "maxpool.inDelta", inDelta, ctx->getInMD().second );
+	Utils::printMDVector( "maxpool.inDelta", inDelta );
 }
 
 int main( int argc, const char * argv[] )
 {
 	gx_is_inner_debug = true;
 
-	//testConvLayer<ConvLayer>();
+	testConvLayer<ConvLayer>();
 
 	testConvLayer<ConvExLayer>();
 

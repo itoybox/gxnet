@@ -3,76 +3,24 @@
 
 namespace gxnet {
 
-void Im2Rows :: filters2Rows( const DataVector & src, const Dims & dims, DataMatrix * dest )
+void Im2Rows :: rot180Filters2Rows( const MDVector & src, MDVector * rot180 )
 {
-	Dims rowDims = { dims[ 1 ], dims[ 2 ], dims[ 3 ] };
-	size_t rowSize = gx_dims_flatten_size( rowDims );
+	MDVector temp;
+	rot180Filters( src, &temp );
 
-	if( dest->size() == 0 ) {
-		dest->resize( dims[ 0 ] );
-		for( auto & vec : *dest )  vec.resize( rowSize );
-	}
+	MDSpanRO tempRO( temp );
 
-	MDSpanRO srcMS( src, dims );
-	for( size_t f = 0; f < dims[ 0 ]; f++ ) {
-		MDSpanRW rowMS( ( *dest )[ f ], rowDims );
+	Dims dims = { temp.second[ 1 ], temp.second[ 0 ], temp.second[ 2 ], temp.second[ 3 ] };
+	rot180->first.resize( gx_dims_flatten_size( dims ) );
+	rot180->second = { dims[ 0 ], gx_dims_flatten_size( dims ) / dims[ 0 ] };
 
-		for( size_t c = 0; c < rowDims[ 0 ]; c++ ) {
-			for( size_t x = 0; x < rowDims[ 1 ]; x++ ) {
-				for( size_t y = 0; y < rowDims[ 2 ]; y++ ) {
-					rowMS( c, x, y ) = srcMS( f, c, x, y );
-				}
-			}
-		}
-	}
-}
+	MDSpanRW rw( std::begin( rot180->first ), dims );
 
-void Im2Rows :: deltas2Rows( const DataVector & src, size_t sampleIndex, const Dims & dims,
-		DataMatrix * dest )
-{
-	Dims rowDims = { dims[ 2 ], dims[ 3 ] };
-	size_t rowSize = gx_dims_flatten_size( rowDims );
-
-	if( dest->size() == 0 ) {
-		dest->resize( dims[ 1 ] );
-		for( auto & vec : *dest )  vec.resize( rowSize );
-	}
-
-	MDSpanRO srcMS( src, dims );
-	for( size_t f = 0; f < dims[ 1 ]; f++ ) {
-		MDSpanRW rowMS( ( *dest )[ f ], rowDims );
-
-		for( size_t x = 0; x < rowDims[ 0 ]; x++ ) {
-			for( size_t y = 0; y < rowDims[ 1 ]; y++ ) {
-				rowMS( x, y ) = srcMS( sampleIndex, f, x, y );
-			}
-		}
-	}
-}
-
-void Im2Rows :: rot180Filters2Rows( const DataVector & src, const Dims & dims,
-		DataMatrix * rot180 )
-{
-	Dims rowDims = { dims[ 0 ], dims[ 2 ], dims[ 3 ] };
-	size_t rowSize = gx_dims_flatten_size( rowDims );
-
-	if( rot180->size() == 0 ) {
-		rot180->resize( dims[ 1 ] );
-		for( auto & vec : *rot180 ) vec.resize( rowSize );
-	}
-
-	DataVector temp( src.size() );
-	rot180Filters( src, dims, &temp );
-
-	MDSpanRO tempMS( temp, dims );
-
-	for( size_t c = 0; c < dims[ 1 ]; c++ ) {
-		MDSpanRW rowMS( ( *rot180 )[ c ], rowDims );
-
-		for( size_t f = 0; f < rowDims[ 0 ]; f++ ) {
-			for( size_t x = 0; x < rowDims[ 1 ]; x++ ) {
-				for( size_t y = 0; y < rowDims[ 2 ]; y++ ) {
-					rowMS( f, x, y ) = tempMS( f, c, x, y );
+	for( size_t c = 0; c < dims[ 0 ]; c++ ) {
+		for( size_t f = 0; f < dims[ 1 ]; f++ ) {
+			for( size_t x = 0; x < dims[ 2 ]; x++ ) {
+				for( size_t y = 0; y < dims[ 3 ]; y++ ) {
+					rw( c, f, x, y ) = tempRO( f, c, x, y );
 				}
 			}
 		}
@@ -81,87 +29,77 @@ void Im2Rows :: rot180Filters2Rows( const DataVector & src, const Dims & dims,
 	//Utils::printMatrix( "im2row.rot180", *rot180, false );
 }
 
-void Im2Rows :: input2Rows( const MDSpanRO & inMS, size_t sampleIndex, const Dims & filterDims, DataMatrix * dest )
+void Im2Rows :: input2Rows( const MDSpanRO & inRO, size_t sampleIndex,
+		const Dims & filterDims, MDVector * dest )
 {
-	Dims rowDims = { filterDims[ 1 ], filterDims[ 2 ], filterDims[ 3 ] };
+	size_t xMax = inRO.dim( 2 ) - filterDims[ 2 ] + 1;
+	size_t yMax = inRO.dim( 3 ) - filterDims[ 3 ] + 1;
 
-	if( dest->size() == 0 ) {
-		for( size_t x = 0; x < inMS.dim( 2 ) - filterDims[ 2 ] + 1; x++ ) {
-			for( size_t y = 0; y < inMS.dim( 3 ) - filterDims[ 3 ] + 1; y++ ) {
-				dest->emplace_back( DataVector( gx_dims_flatten_size( rowDims ) ) );
-			}
-		}
-	}
+	Dims dims = { xMax * yMax, filterDims[ 1 ], filterDims[ 2 ], filterDims[ 3 ] };
+	dest->first.resize( gx_dims_flatten_size( dims ) );
 
-	DataMatrix::iterator iter = dest->begin();
+	dest->second = { xMax * yMax, gx_dims_flatten_size( filterDims ) / filterDims[ 0 ] };
 
-	for( size_t x = 0; x < inMS.dim( 2 ) - filterDims[ 2 ] + 1; x++ ) {
-		for( size_t y = 0; y < inMS.dim( 3 ) - filterDims[ 3 ] + 1; y++ ) {
-			MDSpanRW inRowMS( *iter, rowDims );
+	MDSpanRW rw( std::begin( dest->first ), dims );
 
-			for( size_t c = 0; c < inMS.dim( 1 ); c++ ) {
+	for( size_t x = 0; x < xMax; x++ ) {
+		for( size_t y = 0; y < yMax; y++ ) {
+			for( size_t c = 0; c < inRO.dim( 1 ); c++ ) {
 				for( size_t i = 0; i < filterDims[ 2 ]; i++ ) {
 					for( size_t j = 0; j < filterDims[ 3 ]; j++ ) {
-						inRowMS( c, i, j ) = inMS( sampleIndex, c, x + i, y + j );
+						rw( ( x * yMax + y ), c, i, j ) = inRO( sampleIndex, c, x + i, y + j );
 					}
 				}
 			}
-			++iter;
 		}
 	}
 }
 
-void Im2Rows :: input2Rows4Gradients( const MDSpanRO & inMS, size_t sampleIndex,
-		const Dims & filterDims, DataMatrix * dest )
+void Im2Rows :: input2Rows4Gradients( const MDSpanRO & inRO, size_t sampleIndex,
+		const Dims & filterDims, MDVector * dest )
 {
-	Dims rowDims = { filterDims[ 2 ], filterDims[ 3 ] };
+	size_t xMax = inRO.dim( 2 ) - filterDims[ 2 ] + 1;
+	size_t yMax = inRO.dim( 3 ) - filterDims[ 3 ] + 1;
 
-	if( dest->size() == 0 ) {
-		for( size_t c = 0; c < inMS.dim( 1 ); c++ ) {
-			for( size_t x = 0; x < inMS.dim( 2 ) - filterDims[ 2 ] + 1; x++ ) {
-				for( size_t y = 0; y < inMS.dim( 3 ) - filterDims[ 3 ] + 1; y++ ) {
-					dest->emplace_back( DataVector( gx_dims_flatten_size( rowDims ) ) );
-				}
-			}
-		}
-	}
+	Dims dims = { inRO.dim( 1 ), xMax * yMax, filterDims[ 2 ], filterDims[ 3 ] };
+	dest->first.resize( gx_dims_flatten_size( dims ) );
 
-	DataMatrix::iterator iter = dest->begin();
+	dest->second = { inRO.dim( 1 ) * xMax * yMax, filterDims[ 2 ] * filterDims[ 3 ] };
 
-	for( size_t c = 0; c < inMS.dim( 1 ); c++ ) {
-		for( size_t x = 0; x < inMS.dim( 2 ) - filterDims[ 2 ] + 1; x++ ) {
-			for( size_t y = 0; y < inMS.dim( 3 ) - filterDims[ 3 ] + 1; y++ ) {
-				MDSpanRW inRowMS( *iter, rowDims );
+	MDSpanRW rw( std::begin( dest->first ), dims );
+
+	for( size_t c = 0; c < inRO.dim( 1 ); c++ ) {
+		for( size_t x = 0; x < inRO.dim( 2 ) - filterDims[ 2 ] + 1; x++ ) {
+			for( size_t y = 0; y < inRO.dim( 3 ) - filterDims[ 3 ] + 1; y++ ) {
 
 				for( size_t i = 0; i < filterDims[ 2 ]; i++ ) {
 					for( size_t j = 0; j < filterDims[ 3 ]; j++ ) {
-						inRowMS( i, j ) = inMS( sampleIndex, c, x + i, y + j );
+						rw( c, x * yMax + y, i, j ) = inRO( sampleIndex, c, x + i, y + j );
 					}
 				}
-				++iter;
 			}
 		}
 	}
 }
 
-void Im2Rows :: rot180Filters( const DataVector & src, const Dims & dims, DataVector * dest )
+void Im2Rows :: rot180Filters( const MDVector & src, MDVector * dest )
 {
-	MDSpanRO srcMS( src, dims );
-	MDSpanRW destMS( *dest, dims );
+	dest->second = src.second;
+	dest->first.resize( gx_dims_flatten_size( dest->second ) );
 
-	dest->resize( gx_dims_flatten_size( dims ) );
+	MDSpanRO srcRO( src );
+	MDSpanRW destRW( *dest );
 
-	for( size_t f = 0; f < dims[ 0 ]; f++ ) {
-		for( size_t c = 0; c < dims[ 1 ]; c++ ) {
-			for( size_t i = 0; i < dims[ 2 ]; i++ ) {
-				for( size_t j = 0; j < dims[ 3 ]; j++ ) {
-					destMS( f, c, dims[ 2 ] - i - 1, dims[ 3 ] - j - 1 ) = srcMS( f, c, i, j );
+	for( size_t f = 0; f < srcRO.dim( 0 ); f++ ) {
+		for( size_t c = 0; c < srcRO.dim( 1 ); c++ ) {
+			for( size_t i = 0; i < srcRO.dim( 2 ); i++ ) {
+				for( size_t j = 0; j < srcRO.dim( 3 ); j++ ) {
+					destRW( f, c, srcRO.dim( 2 ) - i - 1, srcRO.dim( 3 ) - j - 1 ) = srcRO( f, c, i, j );
 				}
 			}
 		}
 	}
 }
-
 
 }; // namespace gxnet;
 

@@ -17,13 +17,21 @@ CC = gcc
 
 PROGS = gxtool
 
-TEST_PROGS = testbackward testseeds testmnist \
+TEST_PROGS = testmatmul \
+		testbackward testseeds testmnist \
 		testcnn testemnist
 
 ######################################################################
 
 COMM_OBJS = common.o eval.o utils.o im2rows.o \
 		optim.o context.o activation.o layer.o network.o
+
+######################################################################
+
+ifeq ($(eigen),1)
+CFLAGS += -DENABLE_EIGEN -I/usr/local/include/eigen3/ -Wno-error
+TEST_PROGS += testeigen
+endif
 
 ######################################################################
 
@@ -47,6 +55,12 @@ testcnn: $(COMM_OBJS) testcnn.o
 	$(CC) $(CFLAGS) $^ $(LDFLAGS) -o $@
 
 testemnist: $(COMM_OBJS) testemnist.o
+	$(CC) $(CFLAGS) $^ $(LDFLAGS) -o $@
+
+testmatmul: common.o testmatmul.o
+	$(CC) $(CFLAGS) $^ $(LDFLAGS) -o $@
+
+testeigen: $(COMM_OBJS) testeigen.o
 	$(CC) $(CFLAGS) $^ $(LDFLAGS) -o $@
 
 #=====================================================================

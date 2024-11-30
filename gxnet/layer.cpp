@@ -35,21 +35,21 @@ void BaseLayer :: forward( BaseLayerContext * ctx ) const
 	calcOutput( ctx );
 
 	if( NULL != mActFunc ) {
-		if( gx_is_inner_debug ) Utils::printMDVector( "before.act", ctx->getOutMD() );
+		if( gx_is_inner_debug ) Utils::printMDVector( "before.act", ctx->getOutput() );
 
-		mActFunc->activate( ctx->getOutMD(), &( ctx->getOutMD() ) );
+		mActFunc->activate( ctx->getOutput(), &( ctx->getOutput() ) );
 
-		if( gx_is_inner_debug ) Utils::printMDVector( "after.act", ctx->getOutMD() );
+		if( gx_is_inner_debug ) Utils::printMDVector( "after.act", ctx->getOutput() );
 	}
 
-	ctx->getDeltaMD().second = ctx->getOutMD().second;
-	ctx->getDeltaMD().first.resize( ctx->getOutMD().first.size() );
+	ctx->getDelta().second = ctx->getOutput().second;
+	ctx->getDelta().first.resize( ctx->getOutput().first.size() );
 }
 
-void BaseLayer :: backward( BaseLayerContext * ctx, DataVector * inDelta ) const
+void BaseLayer :: backward( BaseLayerContext * ctx, MDVector * inDelta ) const
 {
 	if( NULL != mActFunc ) {
-		mActFunc->derivate( ctx->getOutMD(), &( ctx->getDeltaMD() ) );
+		mActFunc->derivate( ctx->getOutput(), &( ctx->getDelta() ) );
 	}
 
 	if( NULL != inDelta ) backpropagate( ctx, inDelta );
@@ -130,10 +130,10 @@ FullConnLayer :: FullConnLayer( const Dims & baseInDims, size_t neuronCount )
 	mBaseInDims = baseInDims;
 	mBaseOutDims = { neuronCount };
 
-	mWeights.resize( neuronCount );
-	for( auto & neuron : mWeights ) {
-		neuron.resize( gx_dims_flatten_size( mBaseInDims ) );
-		for( auto & w : neuron ) w = gx_is_inner_debug ? gx_debug_weight : Utils::random();
+	mWeights.second = { neuronCount, gx_dims_flatten_size( mBaseInDims ) };
+	mWeights.first.resize( gx_dims_flatten_size( mWeights.second ) );
+	for( auto & item : mWeights.first ) {
+		item = gx_is_inner_debug ? gx_debug_weight : Utils::random();
 	}
 
 	mBiases.resize( neuronCount );
@@ -148,20 +148,21 @@ void FullConnLayer :: printWeights( bool isDetail ) const
 {
 	if( !isDetail ) return;
 
-	printf( "Weights: Count = %zu; InSize = %zu;\n", mWeights.size(), mWeights[ 0 ].size() );
-	for( size_t i = 0; i < mWeights.size() && i < 10; i++ ) {
-		printf( "\tNeuron#%zu: WeightCount = %zu, Bias = %.8f\n", i, mWeights[ i ].size(), mBiases[ i ] );
-		for( size_t j = 0; j < mWeights[ i ].size() && j < 10; j++ ) {
-			printf( "\t\tWeight#%zu: %.8f\n", j, mWeights[ i ][ j ] );
+	printf( "Weights: Count = %zu; InSize = %zu;\n", mWeights.second[ 0 ], mWeights.second[ 1 ] );
+	MDSpanRO weightsRO( mWeights );
+	for( size_t i = 0; i < weightsRO.dim( 0 ) && i < 10; i++ ) {
+		printf( "\tNeuron#%zu: WeightCount = %zu, Bias = %.8f\n", i, weightsRO.dim( 0 ), mBiases[ i ] );
+		for( size_t j = 0; j < weightsRO.dim( 1 ) && j < 10; j++ ) {
+			printf( "\t\tWeight#%zu: %.8f\n", j, weightsRO( i, j ) );
 		}
 
-		if( mWeights[ i ].size() > 10 ) printf( "\t\t......\n" );
+		if( weightsRO.dim( 1 ) > 10 ) printf( "\t\t......\n" );
 	}
 
-	if( mWeights.size() > 10 ) printf( "\t......\n" );
+	if( weightsRO.dim( 0 ) > 10 ) printf( "\t......\n" );
 }
 
-const DataMatrix & FullConnLayer :: getWeights() const
+const MDVector & FullConnLayer :: getWeights() const
 {
 	return mWeights;
 }
@@ -171,7 +172,7 @@ const DataVector & FullConnLayer :: getBiases() const
 	return mBiases;
 }
 
-void FullConnLayer :: setWeights( const DataMatrix & weights, const DataVector & biases )
+void FullConnLayer :: setWeights( const MDVector & weights, const DataVector & biases )
 {
 	mWeights = weights;
 	mBiases = biases;
@@ -179,56 +180,42 @@ void FullConnLayer :: setWeights( const DataMatrix & weights, const DataVector &
 
 void FullConnLayer :: calcOutput( BaseLayerContext * ctx ) const
 {
-	size_t total = gx_dims_flatten_size( ctx->getInMD().second );
+	MDSpanRO weightsRO( mWeights );
 
-	size_t inSize = mWeights[ 0 ].size();
+	const MDVector & inMD = ctx->getInput();
+	MDVector & outMD = ctx->getOutput();
+
+	size_t total = gx_dims_flatten_size( inMD.second );
+	size_t inSize = gx_dims_flatten_size( mBaseInDims );
 	size_t sampleCount = total / inSize;
 
-	ctx->getOutMD().second = { sampleCount, mWeights.size() };
-	ctx->getOutMD().first.resize( gx_dims_flatten_size( ctx->getOutMD().second ) );
+	outMD.second = { sampleCount, weightsRO.dim( 0 ) };
+	outMD.first.resize( gx_dims_flatten_size( outMD.second ) );
 
-	MDSpanRW outMS( ctx->getOutMD() );
+	Dims inDims = { sampleCount, inSize };
+	MDSpanRO inRO( std::begin( inMD.first ), inDims );
 
-	const DataType * input = std::begin( ctx->getInMD().first );
-
-	for( size_t n = 0; n < sampleCount; n++, input += inSize ) {
-		for( size_t i = 0; i < mWeights.size(); i++ ) {
-			outMS( n, i ) = gx_inner_product( std::begin( mWeights[ i ] ), input, inSize );
-			if( !gx_is_inner_debug )  outMS( n, i ) += mBiases[ i ];
-		}
+	if( gx_is_inner_debug ) {
+		gx_rows_product( inRO, weightsRO, std::begin( outMD.first ), outMD.first.size() );
+	} else {
+		gx_rows_product( inRO, weightsRO, mBiases, false, std::begin( outMD.first ), outMD.first.size() );
 	}
 
 	if( gx_is_inner_debug ) {
-		Utils::printMDVector( "input", ctx->getInMD() );
-		Utils::printMDVector( "output", ctx->getOutMD() );
+		Utils::printMDVector( "input", inMD );
+		Utils::printMDVector( "output", outMD );
 	}
 }
 
-void FullConnLayer :: backpropagate( BaseLayerContext * ctx, DataVector * inDelta ) const
+void FullConnLayer :: backpropagate( BaseLayerContext * ctx, MDVector * inDelta ) const
 {
 	if( NULL == inDelta ) return;
 
-	FullConnLayerContext * ctxImpl = dynamic_cast< FullConnLayerContext * >( ctx );
+	MDSpanRO weightsRO( mWeights );
 
-	size_t total = gx_dims_flatten_size( ctx->getOutMD().second );
-	size_t sampleCount = total / mWeights.size();
+	MDSpanRO deltaRO( ctx->getDelta() );
 
-	Dims inDeltaDims = { sampleCount, mWeights[ 0 ].size() };
-	inDelta->resize( gx_dims_flatten_size( inDeltaDims ) );
-
-	MDSpanRW inDeltaMS( *inDelta, inDeltaDims );
-
-	DataVector & temp = ctxImpl->getTempWeights();
-	temp.resize( mWeights.size() );
-
-	for( size_t i = 0; i < mWeights[ 0 ].size(); i++ ) {
-		for( size_t j = 0; j < mWeights.size(); j++ ) temp[ j ] = mWeights[ j ][ i ];
-
-		const DataType * delta = std::begin( ctx->getDeltaMD().first );
-		for( size_t n = 0; n < sampleCount; n++, delta += temp.size() ) {
-			inDeltaMS( n, i ) = gx_inner_product( delta, std::begin( temp ), temp.size() );
-		}
-	}
+	gx_matmul( deltaRO, weightsRO, inDelta );
 }
 
 BaseLayerContext * FullConnLayer :: newCtx() const
@@ -238,50 +225,64 @@ BaseLayerContext * FullConnLayer :: newCtx() const
 
 void FullConnLayer :: collectGradients( BaseLayerContext * ctx ) const
 {
-	size_t total = gx_dims_flatten_size( ctx->getInMD().second );
+	FullConnLayerContext * ctxImpl = dynamic_cast< FullConnLayerContext * >( ctx );
 
-	size_t inSize = mWeights[ 0 ].size();
+	MDSpanRO weightsRO( mWeights );
+
+	const MDVector & inMD = ctx->getInput();
+	const MDVector & deltaMD = ctx->getDelta();
+
+	size_t total = gx_dims_flatten_size( inMD.second );
+	size_t inSize = gx_dims_flatten_size( mBaseInDims );
 	size_t sampleCount = total / inSize;
 
-	DataMatrix & gradients = ctx->getGradients();
+	MDVector & gradients = ctx->getGradients();
+	DataVector & tempGradients = ctxImpl->getTempGradients();
 
-	if( gradients.size() <= 0 ) {
-		gradients.reserve( mWeights.size() );
-		for( size_t i = 0; i < mWeights.size(); i++ ) {
-			gradients.emplace_back( DataVector( inSize ) );
-		}
+	if( gradients.first.size() <= 0 ) {
+		gradients.second = mWeights.second;
+		gradients.first.resize( mWeights.first.size() );
+		tempGradients.resize( mWeights.first.size() );
 	}
 
-	const DataType * input = std::begin( ctx->getInMD().first );
-	const DataType * delta = std::begin( ctx->getDeltaMD().first );
+	const DataType * input = std::begin( inMD.first );
+	const DataType * delta = std::begin( deltaMD.first );
 
-	FullConnLayerContext * ctxImpl = dynamic_cast< FullConnLayerContext * >( ctx );
-	DataVector & tempGradients = ctxImpl->getTempGradients();
-	tempGradients.resize( inSize );
+	for( size_t n = 0; n < sampleCount; n++, input += inSize, delta += weightsRO.dim( 0 ) ) {
 
-	for( size_t n = 0; n < sampleCount; n++, input += inSize, delta += mWeights.size() ) {
-		for( size_t i = 0; i < mWeights.size(); i++ ) {
-			gx_vs_product( input,  delta[ i ], std::begin( tempGradients ), inSize );
-
+#if 0
+		if( 0 == n ) {
+			gx_kronecker_product( delta, weightsRO.dim( 0 ), input, inSize,
+					std::begin( gradients.first ), gradients.first.size() );
+		} else {
+			gx_kronecker_product( delta, weightsRO.dim( 0 ), input, inSize,
+					std::begin( tempGradients ), tempGradients.size() );
+			std::transform( std::begin( tempGradients ), std::end( tempGradients ),
+					std::begin( gradients.first ), std::begin( gradients.first ),
+					std::plus< DataType >() );
+		}
+#else
+		for( size_t i = 0; i < weightsRO.dim( 0 ); i++ ) {
 			if( n == 0 ) {
-				std::copy( std::begin( tempGradients ), std::end( tempGradients ), std::begin( gradients[ i ] ) );
+				gx_vs_product( input, delta[ i ], std::begin( gradients.first ) + i * inSize, inSize );
 			} else {
-				std::transform( std::begin( tempGradients ), std::end( tempGradients ),
-						std::begin( gradients[ i ] ), std::begin( gradients[ i ] ),
+				gx_vs_product( input, delta[ i ], std::begin( tempGradients ), inSize );
+				std::transform( std::begin( tempGradients ), std::begin( tempGradients ) + inSize,
+						std::begin( gradients.first ) + i * inSize, std::begin( gradients.first ) + i * inSize,
 						std::plus< DataType >() );
 			}
 		}
+#endif
+
 	}
 }
 
 void FullConnLayer :: applyGradients( const BackwardContext & ctx, Optim * optim,
 			size_t trainingCount, size_t miniBatchCount )
 {
-	for( size_t n = 0; n < mWeights.size(); n++ ) {
-		optim->update( &( mWeights[ n ] ), ctx.getGradients()[ n ], trainingCount, miniBatchCount );
-	}
+	optim->update( &( mWeights.first ), ctx.getGradients().first, trainingCount, miniBatchCount );
 
-	if( !gx_is_inner_debug ) optim->updateBiases( &mBiases, ctx.getDeltaMD().first, miniBatchCount );
+	if( !gx_is_inner_debug ) optim->updateBiases( &mBiases, ctx.getDelta().first, miniBatchCount );
 }
 
 ////////////////////////////////////////////////////////////
@@ -353,44 +354,44 @@ const DataVector & ConvLayer :: getBiases() const
 
 void ConvLayer :: calcOutput( BaseLayerContext * ctx ) const
 {
-	const Dims & inDims = ctx->getInMD().second;
+	const Dims & inDims = ctx->getInput().second;
 
 	assert( inDims.size() == 4 );
 
-	Dims & outDims = ctx->getOutMD().second;
+	Dims & outDims = ctx->getOutput().second;
 	outDims = {
 		inDims[ 0 ], mFilters.second[ 0 ],
 		inDims[ 2 ] - mFilters.second[ 2 ] + 1,
 		inDims[ 3 ] - mFilters.second[ 3 ] + 1
 	};
-	ctx->getOutMD().first.resize( gx_dims_flatten_size( outDims ) );
+	ctx->getOutput().first.resize( gx_dims_flatten_size( outDims ) );
 
-	MDSpanRW outMS( ctx->getOutMD() );
+	MDSpanRW outRW( ctx->getOutput() );
 
-	MDSpanRO filterMS( mFilters );
+	MDSpanRO filterRO( mFilters );
 
-	MDSpanRO inMS( ctx->getInMD() );
+	MDSpanRO inRO( ctx->getInput() );
 
 	for( size_t n = 0; n < inDims[ 0 ]; n++ ) {
-		for( size_t f = 0; f < filterMS.dim( 0 ); f++ ) {
+		for( size_t f = 0; f < filterRO.dim( 0 ); f++ ) {
 			for( size_t x = 0; x < outDims[ 2 ]; x++ ) {
 				for( size_t y = 0; y < outDims[ 3 ]; y++ ) {
-					outMS( n, f, x, y ) = forwardConv( inMS, n, f, x, y, filterMS ) + mBiases[ f ];
+					outRW( n, f, x, y ) = forwardConv( inRO, n, f, x, y, filterRO ) + mBiases[ f ];
 				}
 			}
 		}
 	}
 }
 
-DataType ConvLayer :: forwardConv( const MDSpanRO & inMS, size_t sampleIndex, size_t filterIndex,
-		size_t beginX, size_t beginY, const MDSpanRO & filterMS )
+DataType ConvLayer :: forwardConv( const MDSpanRO & inRO, size_t sampleIndex, size_t filterIndex,
+		size_t beginX, size_t beginY, const MDSpanRO & filterRO )
 {
 	DataType total = 0;
 
-	for( size_t c = 0; c < filterMS.dim( 1 ); c++ ) {
-		for( size_t x = 0; x < filterMS.dim( 2 ); x++ ) {
-			for( size_t y = 0; y < filterMS.dim( 3 ); y++ ) {
-				total += inMS( sampleIndex, c, beginX + x, beginY + y ) * filterMS( filterIndex, c, x, y );
+	for( size_t c = 0; c < filterRO.dim( 1 ); c++ ) {
+		for( size_t x = 0; x < filterRO.dim( 2 ); x++ ) {
+			for( size_t y = 0; y < filterRO.dim( 3 ); y++ ) {
+				total += inRO( sampleIndex, c, beginX + x, beginY + y ) * filterRO( filterIndex, c, x, y );
 			}
 		}
 	}
@@ -398,66 +399,64 @@ DataType ConvLayer :: forwardConv( const MDSpanRO & inMS, size_t sampleIndex, si
 	return total;
 }
 
-void ConvLayer :: backpropagate( BaseLayerContext * ctx, DataVector * inDelta ) const
+void ConvLayer :: backpropagate( BaseLayerContext * ctx, MDVector * inDelta ) const
 {
 	ConvLayerContext * ctxImpl = dynamic_cast< ConvLayerContext * >( ctx );
 
-	const Dims & outDims = ctx->getOutMD().second;
+	const Dims & outDims = ctx->getOutput().second;
 
 	// 1. prepare outDelta padding data
-	MDVector & paddingDeltaMD = ctxImpl->getPaddingDeltaMD();
-	if( paddingDeltaMD.second.size() <= 0 ) {
-		paddingDeltaMD.second = {
+	MDVector & paddingDelta = ctxImpl->getPaddingDelta();
+	if( paddingDelta.second.size() <= 0 ) {
+		paddingDelta.second = {
 				outDims[ 0 ],
 				outDims[ 1 ],
 				outDims[ 2 ] + 2 * ( mFilters.second[ 2 ] - 1 ),
 				outDims[ 3 ] + 2 * ( mFilters.second[ 3 ] - 1 )
 		};
 	}
-	paddingDeltaMD.second[ 0 ] = outDims[ 0 ];
+	paddingDelta.second[ 0 ] = outDims[ 0 ];
 
-	paddingDeltaMD.first.resize( gx_dims_flatten_size( paddingDeltaMD.second ) );
+	paddingDelta.first.resize( gx_dims_flatten_size( paddingDelta.second ) );
 
-	MDSpanRW paddingDeltaMS( paddingDeltaMD );
+	MDSpanRW paddingDeltaRW( paddingDelta );
 
-	MDSpanRO deltaRO( ctx->getDeltaMD() );
-	copyOutDelta( deltaRO, mFilters.second[ 2 ], &paddingDeltaMS );
+	MDSpanRO deltaRO( ctx->getDelta() );
+	copyOutDelta( deltaRO, mFilters.second[ 2 ], &paddingDeltaRW );
 
-	if( gx_is_inner_debug ) Utils::printMDVector( "paddingDelta", paddingDeltaMD );
+	if( gx_is_inner_debug ) Utils::printMDVector( "paddingDelta", paddingDelta );
 
 	// 2. prepare rotate180 filters
-	DataVector rot180Filters( mFilters.first.size() );
-	Im2Rows::rot180Filters( mFilters.first, mFilters.second, &rot180Filters );
-	if( gx_is_inner_debug ) Utils::printVector( "rot180Filters", rot180Filters, mFilters.second );
+	MDVector rot180Filters;
+	Im2Rows::rot180Filters( mFilters, &rot180Filters );
+	if( gx_is_inner_debug ) Utils::printMDVector( "rot180Filters", rot180Filters );
 
 	// 3. convolution
-	MDSpanRO rot180FiltersMS( rot180Filters, mFilters.second );
-	MDSpanRO paddingDeltaRO( paddingDeltaMD );
+	MDSpanRO rot180FiltersRO( rot180Filters );
+	MDSpanRO paddingDeltaRO( paddingDelta );
 
-	const Dims & inDims = ctx->getInMD().second;
+	MDSpanRW inDeltaRW( *inDelta );
 
-	MDSpanRW inDeltaMS( *inDelta, inDims );
-
-	for( size_t n = 0; n < inDims[ 0 ]; n++ ) {
-		for( size_t c = 0; c < inDims[ 1 ]; c++ ) {
-			for( size_t x = 0; x < inDims[ 2 ]; x++ ) {
-				for( size_t y = 0; y < inDims[ 3 ]; y++ ) {
-					inDeltaMS( n, c, x, y ) = backwardConv( paddingDeltaRO, n, c, x, y, rot180FiltersMS );
+	for( size_t n = 0; n < inDeltaRW.dim( 0 ); n++ ) {
+		for( size_t c = 0; c < inDeltaRW.dim( 1 ); c++ ) {
+			for( size_t x = 0; x < inDeltaRW.dim( 2 ); x++ ) {
+				for( size_t y = 0; y < inDeltaRW.dim( 3 ); y++ ) {
+					inDeltaRW( n, c, x, y ) = backwardConv( paddingDeltaRO, n, c, x, y, rot180FiltersRO );
 				}
 			}
 		}
 	}
 }
 
-DataType ConvLayer :: backwardConv( const MDSpanRO & inMS, size_t sampleIndex, size_t channelIndex,
-		size_t beginX, size_t beginY, const MDSpanRO & filterMS )
+DataType ConvLayer :: backwardConv( const MDSpanRO & inRO, size_t sampleIndex, size_t channelIndex,
+		size_t beginX, size_t beginY, const MDSpanRO & filterRO )
 {
 	DataType total = 0;
 
-	for( size_t f = 0; f < filterMS.dim( 0 ); f++ ) {
-		for( size_t x = 0; x < filterMS.dim( 2 ); x++ ) {
-			for( size_t y = 0; y < filterMS.dim( 3 ); y++ ) {
-				total += inMS( sampleIndex, f, beginX + x, beginY + y ) * filterMS( f, channelIndex, x, y );
+	for( size_t f = 0; f < filterRO.dim( 0 ); f++ ) {
+		for( size_t x = 0; x < filterRO.dim( 2 ); x++ ) {
+			for( size_t y = 0; y < filterRO.dim( 3 ); y++ ) {
+				total += inRO( sampleIndex, f, beginX + x, beginY + y ) * filterRO( f, channelIndex, x, y );
 			}
 		}
 	}
@@ -465,13 +464,13 @@ DataType ConvLayer :: backwardConv( const MDSpanRO & inMS, size_t sampleIndex, s
 	return total;
 }
 
-void ConvLayer :: copyOutDelta( const MDSpanRO & outDeltaMS, size_t filterSize, MDSpanRW * outPaddingMS )
+void ConvLayer :: copyOutDelta( const MDSpanRO & outDeltaRO, size_t filterSize, MDSpanRW * outPaddingRW )
 {
-	for( size_t n = 0; n < outDeltaMS.dim( 0 ); n++ ) {
-		for( size_t f = 0; f < outDeltaMS.dim( 1 ); f++ ) {
-			for( size_t x = 0; x < outDeltaMS.dim( 2 ); x++ ) {
-				for( size_t y = 0; y < outDeltaMS.dim( 3 ); y++ ) {
-					( *outPaddingMS )( n, f, x + filterSize - 1, y + filterSize - 1 ) = outDeltaMS( n, f, x, y );
+	for( size_t n = 0; n < outDeltaRO.dim( 0 ); n++ ) {
+		for( size_t f = 0; f < outDeltaRO.dim( 1 ); f++ ) {
+			for( size_t x = 0; x < outDeltaRO.dim( 2 ); x++ ) {
+				for( size_t y = 0; y < outDeltaRO.dim( 3 ); y++ ) {
+					( *outPaddingRW )( n, f, x + filterSize - 1, y + filterSize - 1 ) = outDeltaRO( n, f, x, y );
 				}
 			}
 		}
@@ -480,25 +479,27 @@ void ConvLayer :: copyOutDelta( const MDSpanRO & outDeltaMS, size_t filterSize, 
 
 void ConvLayer :: collectGradients( BaseLayerContext * ctx ) const
 {
-	const Dims & outDims = ctx->getOutMD().second;
+	const Dims & outDims = ctx->getOutput().second;
 
-	if( ctx->getGradients().size() <= 0 ) {
-		ctx->getGradients().emplace_back( DataVector( gx_dims_flatten_size( mFilters.second ) ) );
+	MDVector & gradients = ctx->getGradients();
+	if( gradients.first.size() <= 0 ) {
+		gradients.second = mFilters.second;
+		gradients.first.resize( mFilters.first.size() );
 	} else {
-		ctx->getGradients()[ 0 ] = 0.0;
+		gradients.first = 0.0;
 	}
 
-	MDSpanRW gradientMS( ctx->getGradients()[ 0 ], mFilters.second );
-	MDSpanRO deltaRO( ctx->getDeltaMD() );
+	MDSpanRW gradientRW( gradients );
+	MDSpanRO deltaRO( ctx->getDelta() );
 
-	const MDSpanRO inMS( ctx->getInMD() );
+	const MDSpanRO inRO( ctx->getInput() );
 
 	for( size_t n = 0; n < outDims[ 0 ]; n++ ) {
 		for( size_t f = 0; f < mFilters.second[ 0 ]; f++ ) {
 			for( size_t c = 0; c < mFilters.second[ 1 ]; c++ ) {
 				for( size_t x = 0; x < mFilters.second[ 2 ]; x++ ) {
 					for( size_t y = 0; y < mFilters.second[ 3 ]; y++ ) {
-						gradientMS( f, c, x, y ) += gradientConv( inMS, n, f, c, x, y, deltaRO );
+						gradientRW( f, c, x, y ) += gradientConv( inRO, n, f, c, x, y, deltaRO );
 					}
 				}
 			}
@@ -506,14 +507,14 @@ void ConvLayer :: collectGradients( BaseLayerContext * ctx ) const
 	}
 }
 
-DataType ConvLayer :: gradientConv( const MDSpanRO & inMS, size_t sampleIndex, size_t filterIndex,
-		size_t channelIndex, size_t beginX, size_t beginY, const MDSpanRO & filterMS )
+DataType ConvLayer :: gradientConv( const MDSpanRO & inRO, size_t sampleIndex, size_t filterIndex,
+		size_t channelIndex, size_t beginX, size_t beginY, const MDSpanRO & filterRO )
 {
 	DataType total = 0;
 
-	for( size_t x = 0; x < filterMS.dim( 2 ); x++ ) {
-		for( size_t y = 0; y < filterMS.dim( 3 ); y++ ) {
-			total += inMS( sampleIndex, channelIndex, beginX + x, beginY + y ) * filterMS( sampleIndex, filterIndex, x, y );
+	for( size_t x = 0; x < filterRO.dim( 2 ); x++ ) {
+		for( size_t y = 0; y < filterRO.dim( 3 ); y++ ) {
+			total += inRO( sampleIndex, channelIndex, beginX + x, beginY + y ) * filterRO( sampleIndex, filterIndex, x, y );
 		}
 	}
 
@@ -523,19 +524,19 @@ DataType ConvLayer :: gradientConv( const MDSpanRO & inMS, size_t sampleIndex, s
 void ConvLayer :: applyGradients( const BackwardContext & ctx, Optim * optim,
 			size_t trainingCount, size_t miniBatchCount )
 {
-	optim->update( &mFilters.first, ctx.getGradients()[ 0 ], trainingCount, miniBatchCount );
+	optim->update( &mFilters.first, ctx.getGradients().first, trainingCount, miniBatchCount );
 
-	const Dims & deltaDims = ctx.getDeltaMD().second;
+	const Dims & deltaDims = ctx.getDelta().second;
 
 	DataVector biasDelta( deltaDims[ 1 ] );
 
-	const MDSpanRO deltaMS( ctx.getDeltaMD() );
+	const MDSpanRO deltaRO( ctx.getDelta() );
 
 	for( size_t n = 0; n < deltaDims[ 0 ]; n++ ) {
 		for( size_t f = 0; f < deltaDims[ 1 ]; f++ ) {
 			for( size_t i = 0; i < deltaDims[ 2 ]; i++ ) {
 				for( size_t j = 0; j < deltaDims[ 3 ]; j++ ) {
-					biasDelta[ f ] += deltaMS( n, f, i, j );
+					biasDelta[ f ] += deltaRO( n, f, i, j );
 				}
 			}
 		}
@@ -553,7 +554,7 @@ ConvExLayer :: ConvExLayer( const Dims & baseInDims, size_t filterCount, size_t 
 {
 	mType = eConvEx;
 
-	updateFiltersRows( mFilters, &mRowsOfFilters, &mRowsOfRot180Filters );
+	Im2Rows::rot180Filters2Rows( mFilters, &mRowsOfRot180Filters );
 }
 
 ConvExLayer :: ConvExLayer( const Dims & baseInDims, const MDVector & filters, const DataVector & biases )
@@ -561,7 +562,7 @@ ConvExLayer :: ConvExLayer( const Dims & baseInDims, const MDVector & filters, c
 {
 	mType = eConvEx;
 
-	updateFiltersRows( mFilters, &mRowsOfFilters, &mRowsOfRot180Filters );
+	Im2Rows::rot180Filters2Rows( mFilters, &mRowsOfRot180Filters );
 }
 
 ConvExLayer :: ~ConvExLayer()
@@ -581,90 +582,85 @@ void ConvExLayer :: calcOutput( BaseLayerContext * ctx ) const
 
 	assert( NULL != ctxImpl );
 
-	const Dims & inDims = ctx->getInMD().second;
+	const Dims & inDims = ctx->getInput().second;
 
-	Dims & outDims = ctx->getOutMD().second;
+	Dims & outDims = ctx->getOutput().second;
 
 	outDims = mBaseOutDims;
 	outDims.insert( outDims.begin(), inDims[ 0 ] );
 
-	ctx->getOutMD().first.resize( gx_dims_flatten_size( outDims ) );
+	ctx->getOutput().first.resize( gx_dims_flatten_size( outDims ) );
 
-	Dims outDims4Rows = { outDims[ 0 ], outDims[ 1 ], outDims[ 2 ] * outDims[ 3 ] };
-	MDSpanRW outMS4Rows( ctx->getOutMD().first, outDims4Rows );
+	MDSpanRO inRO( ctx->getInput() );
 
-	DataMatrix & rows4input = ctxImpl->getRows4calcOutput();
+	DataType * outPtr = std::begin( ctx->getOutput().first );
+	size_t outSize = gx_dims_flatten_size( mBaseOutDims );
 
-	MDSpanRO inMS( ctx->getInMD() );
+	Dims fakeDims = { mFilters.second[ 0 ],
+			gx_dims_flatten_size( mFilters.second ) / mFilters.second[ 0 ] };
+	MDSpanRO filterRO( std::begin( mFilters.first ), fakeDims );
 
-	for( size_t n = 0; n < inDims[ 0 ]; n++ ) {
+	MDVector & rows4input = ctxImpl->getRows4calcOutput();
 
-		Im2Rows::input2Rows( inMS, n, mFilters.second, &rows4input );
+	for( size_t n = 0; n < inDims[ 0 ]; n++, outPtr += outSize ) {
 
-		if( gx_is_inner_debug ) Utils::printMatrix( "input", rows4input );
+		Im2Rows::input2Rows( inRO, n, mFilters.second, &rows4input );
 
-		assert( ctx->getOutMD().first.size() == ( inDims[ 0 ] * rows4input.size() * mRowsOfFilters.size() ) );
+		if( gx_is_inner_debug ) Utils::printMDVector( "input", rows4input );
 
-		for( size_t i = 0; i < mRowsOfFilters.size(); i++ ) {
-			for( size_t j = 0; j < rows4input.size(); j++ ) {
-				outMS4Rows( n, i, j ) = gx_inner_product( std::begin( mRowsOfFilters[ i ] ),
-						std::begin( rows4input[ j ] ), mRowsOfFilters[ i ].size() );
-				outMS4Rows( n, i, j ) += mBiases[ i ];
-			}
-		}
+		MDSpanRO inputRO( rows4input );
+		gx_rows_product( filterRO, inputRO, mBiases, true, outPtr, outSize );
 	}
 }
 
-void ConvExLayer :: backpropagate( BaseLayerContext * ctx, DataVector * inDelta ) const
+void ConvExLayer :: backpropagate( BaseLayerContext * ctx, MDVector * inDelta ) const
 {
 	ConvExLayerContext * ctxImpl = dynamic_cast< ConvExLayerContext * >( ctx );
 
-	const Dims & outDims = ctx->getOutMD().second;
+	const Dims & outDims = ctx->getOutput().second;
 
-	MDVector & paddingDeltaMD = ctxImpl->getPaddingDeltaMD();
+	MDVector & paddingDelta = ctxImpl->getPaddingDelta();
 
 	// prepare outDelta padding data
-	if( paddingDeltaMD.second.size() <= 0 ) {
-		paddingDeltaMD.second = {
+	if( paddingDelta.second.size() <= 0 ) {
+		paddingDelta.second = {
 				outDims[ 0 ],
 				outDims[ 1 ],
 				outDims[ 2 ] + 2 * ( mFilters.second[ 2 ] - 1 ),
 				outDims[ 3 ] + 2 * ( mFilters.second[ 3 ] - 1 )
 		};
 	}
-	paddingDeltaMD.second[ 0 ] = outDims[ 0 ];
+	paddingDelta.second[ 0 ] = outDims[ 0 ];
 
-	paddingDeltaMD.first.resize( gx_dims_flatten_size( paddingDeltaMD.second ) );
+	paddingDelta.first.resize( gx_dims_flatten_size( paddingDelta.second ) );
 
-	MDSpanRW paddingDeltaMS( paddingDeltaMD );
-	MDSpanRO deltaRO( ctx->getDeltaMD() );
-	copyOutDelta( deltaRO, mFilters.second[ 2 ], &paddingDeltaMS );
+	MDSpanRW paddingDeltaRW( paddingDelta );
+	MDSpanRO deltaRO( ctx->getDelta() );
+	copyOutDelta( deltaRO, mFilters.second[ 2 ], &paddingDeltaRW );
 
-	if( gx_is_inner_debug ) Utils::printMDVector( "outPadding", paddingDeltaMD );
+	if( gx_is_inner_debug ) Utils::printMDVector( "outPadding", paddingDelta );
 
-	if( gx_is_inner_debug ) Utils::printMatrix( "rot180filters", mRowsOfRot180Filters );
+	if( gx_is_inner_debug ) Utils::printMDVector( "rot180filters", mRowsOfRot180Filters );
 
-	MDSpanRO paddingDeltaRO( paddingDeltaMD );
-
-	Dims inDeltaDims = { outDims[ 0 ], mBaseInDims[ 0 ], gx_dims_flatten_size( mBaseInDims ) / mBaseInDims[ 0 ] };
-	MDSpanRW inDeltaMS( *inDelta, inDeltaDims );
+	MDSpanRO paddingDeltaRO( paddingDelta );
 
 	// rot180Filters dims
 	Dims fakeDims = { mFilters.second[ 1 ], mFilters.second[ 0 ], mFilters.second[ 2 ], mFilters.second[ 3 ] };
 
-	DataMatrix & rows4delta = ctxImpl->getRows4backpropagate();
+	MDVector & rows4delta = ctxImpl->getRows4backpropagate();
 
-	for( size_t n = 0; n < outDims[ 0 ]; n++ ) {
+	size_t inDeltaSize = gx_dims_flatten_size( mBaseInDims );
+	DataType * inDeltaPtr = std::begin( inDelta->first );
+
+	MDSpanRO filterRO( mRowsOfRot180Filters );
+
+	for( size_t n = 0; n < outDims[ 0 ]; n++, inDeltaPtr += inDeltaSize ) {
 		Im2Rows::input2Rows( paddingDeltaRO, n, fakeDims, &rows4delta );
 
 		//if( gx_is_inner_debug ) Utils::printMatrix( "outPadding", rows4delta );
 
-		for( size_t i = 0; i < mRowsOfRot180Filters.size(); i++ ) {
-			for( size_t j = 0; j < rows4delta.size(); j++ ) {
-				inDeltaMS( n, i, j ) = gx_inner_product( std::begin( mRowsOfRot180Filters[ i ] ),
-						std::begin ( rows4delta[ j ] ), mRowsOfRot180Filters[ i ].size() );
-			}
-		}
+		MDSpanRO deltaRO( rows4delta );
+		gx_rows_product( filterRO, deltaRO, inDeltaPtr, inDeltaSize );
 	}
 }
 
@@ -672,38 +668,39 @@ void ConvExLayer :: collectGradients( BaseLayerContext * ctx ) const
 {
 	ConvExLayerContext * ctxImpl = dynamic_cast< ConvExLayerContext * >( ctx );
 
-	if( ctx->getGradients().size() <= 0 ) {
-		ctx->getGradients().emplace_back( DataVector( gx_dims_flatten_size( mFilters.second ) ) );
-	} else {
-		ctx->getGradients()[ 0 ] = 0.0;
+	MDVector & gradients = ctx->getGradients();
+	if( gradients.first.size() <= 0 ) {
+		gradients.second = mFilters.second;
+		gradients.first.resize( mFilters.first.size() );
 	}
 
-	const MDSpanRO inMS( ctx->getInMD() );
+	const MDSpanRO inRO( ctx->getInput() );
 
-	const Dims & outDims = ctx->getOutMD().second;
+	DataVector & tempGradients = ctxImpl->getTempGradients();
+	MDVector & rows4input = ctxImpl->getRows4collectGradients();
 
-	Dims gradientDims = { mFilters.second[ 0 ], gx_dims_flatten_size( mFilters.second ) / mFilters.second[ 0 ] };
+	const Dims & outDims = ctx->getOutput().second;
+	Dims deltaDims = { outDims[ 1 ], outDims[ 2 ] * outDims[ 3 ] };
+	size_t deltaSize = gx_dims_flatten_size( deltaDims );
 
-	MDSpanRW gradientMS( ctx->getGradients()[ 0 ], gradientDims );
+	for( size_t n = 0; n < inRO.dim( 0 ); n++ ) {
 
-	DataMatrix & rowsOfDelta = ctxImpl->getRowsOfDelta();
-	DataMatrix & rows4input = ctxImpl->getRows4collectGradients();
+		MDSpanRO deltaRO( std::begin( ctx->getDelta().first ) + deltaSize * n, deltaDims );
 
-	for( size_t n = 0; n < inMS.dim( 0 ); n++ ) {
+		if( gx_is_inner_debug ) Utils::printMDSpan( "deltas", deltaRO );
 
-		Im2Rows::deltas2Rows( ctx->getDeltaMD().first, n, outDims, &rowsOfDelta );
+		Im2Rows::input2Rows4Gradients( inRO, n, outDims, &rows4input );
 
-		if( gx_is_inner_debug ) Utils::printMatrix( "deltas", rowsOfDelta );
+		if( gx_is_inner_debug ) Utils::printMDVector( "input", rows4input );
 
-		Im2Rows::input2Rows4Gradients( inMS, n, outDims, &rows4input );
+		MDSpanRO inputRO( rows4input );
 
-		if( gx_is_inner_debug ) Utils::printMatrix( "input", rows4input );
-
-		for( size_t i = 0; i < rowsOfDelta.size(); i++ ) {
-			for( size_t j = 0; j < rows4input.size(); j++ ) {
-				gradientMS( i, j ) += gx_inner_product( std::begin( rowsOfDelta[ i ] ),
-						std::begin( rows4input[ j ] ), rowsOfDelta[ i ].size() );
-			}
+		if( 0 == n ) {
+			gx_rows_product( deltaRO, inputRO, std::begin( gradients.first ), gradients.first.size() );
+		} else {
+			tempGradients.resize( gradients.first.size() );
+			gx_rows_product( deltaRO, inputRO, std::begin( tempGradients ), tempGradients.size() );
+			gradients.first += tempGradients;
 		}
 	}
 }
@@ -713,18 +710,7 @@ void ConvExLayer :: applyGradients( const BackwardContext & ctx, Optim * optim,
 {
 	ConvLayer::applyGradients( ctx, optim, trainingCount, miniBatchCount );
 
-	updateFiltersRows( mFilters, &mRowsOfFilters, &mRowsOfRot180Filters );
-}
-
-
-void ConvExLayer :: updateFiltersRows( const MDVector & filters,
-		DataMatrix * rowsOfFilters, DataMatrix * rowsOfRot180Filters )
-{
-	Im2Rows::filters2Rows( filters.first, filters.second, rowsOfFilters );
-	Im2Rows::rot180Filters2Rows( filters.first, filters.second, rowsOfRot180Filters );
-
-	if( gx_is_inner_debug ) Utils::printMatrix( "filters", *rowsOfFilters );
-	if( gx_is_inner_debug ) Utils::printMatrix( "rot180filters", *rowsOfRot180Filters );
+	Im2Rows::rot180Filters2Rows( mFilters, &mRowsOfRot180Filters );
 }
 
 ////////////////////////////////////////////////////////////
@@ -761,74 +747,71 @@ BaseLayerContext * MaxPoolLayer :: newCtx() const
 
 void MaxPoolLayer :: calcOutput( BaseLayerContext * ctx ) const
 {
-	const Dims & inDims = ctx->getInMD().second;
+	const Dims & inDims = ctx->getInput().second;
 
-	Dims & outDims = ctx->getOutMD().second;
+	Dims & outDims = ctx->getOutput().second;
 
 	outDims = { inDims[ 0 ], inDims[ 1 ], inDims[ 2 ] / mPoolSize, inDims[ 3 ] / mPoolSize };
-	ctx->getOutMD().first.resize( gx_dims_flatten_size( outDims ) );
+	ctx->getOutput().first.resize( gx_dims_flatten_size( outDims ) );
 
-	MDSpanRW outMS( ctx->getOutMD() );
-	MDSpanRO inMS( ctx->getInMD() );
+	MDSpanRW outRW( ctx->getOutput() );
+	MDSpanRO inRO( ctx->getInput() );
 
 	for( size_t n = 0; n < outDims[ 0 ]; n++ ) { 
 		for( size_t f = 0; f < outDims[ 1 ]; f++ ) {
 			for( size_t x = 0; x < outDims[ 2 ]; x++ ) {
 				for( size_t y = 0; y < outDims[ 3 ]; y++ ) {
-					outMS( n, f, x, y ) = pool( inMS, n, f, x * mPoolSize, y * mPoolSize );
+					outRW( n, f, x, y ) = pool( inRO, n, f, x * mPoolSize, y * mPoolSize );
 				}
 			}
 		}
 	}
 }
 
-DataType MaxPoolLayer :: pool( const MDSpanRO & inMS, size_t sampleIndex, size_t filterIndex,
+DataType MaxPoolLayer :: pool( const MDSpanRO & inRO, size_t sampleIndex, size_t filterIndex,
 		size_t beginX, size_t beginY ) const
 {
 	DataType result = 1.0 * INT_MIN;
 
 	for( size_t x = 0; x < mPoolSize; x++ ) {
 		for( size_t y = 0; y < mPoolSize; y++ ) {
-			result = std::max( result, inMS( sampleIndex, filterIndex, beginX + x, beginY + y ) );
+			result = std::max( result, inRO( sampleIndex, filterIndex, beginX + x, beginY + y ) );
 		}
 	}
 
 	return result;
 }
 
-void MaxPoolLayer :: backpropagate( BaseLayerContext * ctx, DataVector * inDelta ) const
+void MaxPoolLayer :: backpropagate( BaseLayerContext * ctx, MDVector * inDelta ) const
 {
-	const Dims & inDims = ctx->getInMD().second;
-	const Dims & outDims = ctx->getOutMD().second;
+	const Dims & outDims = ctx->getOutput().second;
 
-	inDelta->resize( ctx->getInMD().first.size() );
+	MDSpanRW inDeltaRW( *inDelta );
 
-	MDSpanRW inDeltaMS( *inDelta, inDims );
+	MDSpanRO outRO( ctx->getOutput() );
 
-	MDSpanRW outMS( ctx->getOutMD() );
-
-	MDSpanRO inMS( ctx->getInMD() );
-	MDSpanRO outDeltaMS( ctx->getDeltaMD() );
+	MDSpanRO inRO( ctx->getInput() );
+	MDSpanRO outDeltaRO( ctx->getDelta() );
 
 	for( size_t n = 0; n < outDims[ 0 ]; n++ ) {
 		for( size_t f = 0; f < outDims[ 1 ]; f++ ) {
 			for( size_t x = 0; x < outDims[ 2 ]; x++ ) {
 				for( size_t y = 0; y < outDims[ 3 ]; y++ ) {
-					unpool( inMS, n, f, x * mPoolSize, y * mPoolSize,
-							outMS( n, f, x, y ), outDeltaMS( n, f, x, y ), &inDeltaMS );
+					unpool( inRO, n, f, x * mPoolSize, y * mPoolSize,
+							outRO( n, f, x, y ), outDeltaRO( n, f, x, y ), &inDeltaRW );
 				}
 			}
 		}
 	}
 }
 
-void MaxPoolLayer :: unpool( const MDSpanRO & inMS, size_t sampleIndex, size_t filterIndex, size_t beginX, size_t beginY,
-		const DataType maxValue, DataType outDelta, MDSpanRW * inDeltaMS ) const
+void MaxPoolLayer :: unpool( const MDSpanRO & inRO, size_t sampleIndex, size_t filterIndex, size_t beginX, size_t beginY,
+		const DataType maxValue, DataType outDelta, MDSpanRW * inDeltaRW ) const
 {
 	for( size_t x = 0; x < mPoolSize; x++ ) {
 		for( size_t y = 0; y < mPoolSize; y++ ) {
-			if( inMS( sampleIndex, filterIndex, beginX + x, beginY + y ) == maxValue ) {
-				( *inDeltaMS )( sampleIndex, filterIndex, beginX + x, beginY + y ) = outDelta;
+			if( inRO( sampleIndex, filterIndex, beginX + x, beginY + y ) == maxValue ) {
+				( *inDeltaRW )( sampleIndex, filterIndex, beginX + x, beginY + y ) = outDelta;
 			}
 		}
 	}
@@ -868,73 +851,70 @@ BaseLayerContext * AvgPoolLayer :: newCtx() const
 
 void AvgPoolLayer :: calcOutput( BaseLayerContext * ctx ) const
 {
-	const Dims & inDims = ctx->getInMD().second;
+	const Dims & inDims = ctx->getInput().second;
 
-	Dims & outDims = ctx->getOutMD().second;
+	Dims & outDims = ctx->getOutput().second;
 
 	outDims = { inDims[ 0 ], inDims[ 1 ], inDims[ 2 ] / mPoolSize, inDims[ 3 ] / mPoolSize };
-	ctx->getOutMD().first.resize( gx_dims_flatten_size( outDims ) );
+	ctx->getOutput().first.resize( gx_dims_flatten_size( outDims ) );
 
-	MDSpanRW outMS( ctx->getOutMD() );
-	MDSpanRO inMS( ctx->getInMD() );
+	MDSpanRW outRW( ctx->getOutput() );
+	MDSpanRO inRO( ctx->getInput() );
 
 	for( size_t n = 0; n < outDims[ 0 ]; n++ ) { 
 		for( size_t f = 0; f < outDims[ 1 ]; f++ ) {
 			for( size_t x = 0; x < outDims[ 2 ]; x++ ) {
 				for( size_t y = 0; y < outDims[ 3 ]; y++ ) {
-					outMS( n, f, x, y ) = pool( inMS, n, f, x * mPoolSize, y * mPoolSize );
+					outRW( n, f, x, y ) = pool( inRO, n, f, x * mPoolSize, y * mPoolSize );
 				}
 			}
 		}
 	}
 }
 
-DataType AvgPoolLayer :: pool( const MDSpanRO & inMS, size_t sampleIndex, size_t filterIndex,
+DataType AvgPoolLayer :: pool( const MDSpanRO & inRO, size_t sampleIndex, size_t filterIndex,
 		size_t beginX, size_t beginY ) const
 {
 	DataType result = 0;
 
 	for( size_t x = 0; x < mPoolSize; x++ ) {
 		for( size_t y = 0; y < mPoolSize; y++ ) {
-			result += inMS( sampleIndex, filterIndex, beginX + x, beginY + y );
+			result += inRO( sampleIndex, filterIndex, beginX + x, beginY + y );
 		}
 	}
 
 	return result / ( mPoolSize * mPoolSize );
 }
 
-void AvgPoolLayer :: backpropagate( BaseLayerContext * ctx, DataVector * inDelta ) const
+void AvgPoolLayer :: backpropagate( BaseLayerContext * ctx, MDVector * inDelta ) const
 {
-	const Dims & inDims = ctx->getInMD().second;
-	const Dims & outDims = ctx->getOutMD().second;
+	const Dims & outDims = ctx->getOutput().second;
 
-	inDelta->resize( ctx->getInMD().first.size() );
+	MDSpanRW inDeltaRW( *inDelta );
 
-	MDSpanRW inDeltaMS( *inDelta, inDims );
+	MDSpanRO outRO( ctx->getOutput() );
 
-	MDSpanRW outMS( ctx->getOutMD() );
-
-	MDSpanRO inMS( ctx->getInMD() );
-	MDSpanRO outDeltaMS( ctx->getDeltaMD() );
+	MDSpanRO inRO( ctx->getInput() );
+	MDSpanRO outDeltaRO( ctx->getDelta() );
 
 	for( size_t n = 0; n < outDims[ 0 ]; n++ ) {
 		for( size_t f = 0; f < outDims[ 1 ]; f++ ) {
 			for( size_t x = 0; x < outDims[ 2 ]; x++ ) {
 				for( size_t y = 0; y < outDims[ 3 ]; y++ ) {
-					unpool( inMS, n, f, x * mPoolSize, y * mPoolSize,
-							outMS( n, f, x, y ), outDeltaMS( n, f, x, y ), &inDeltaMS );
+					unpool( inRO, n, f, x * mPoolSize, y * mPoolSize,
+							outRO( n, f, x, y ), outDeltaRO( n, f, x, y ), &inDeltaRW );
 				}
 			}
 		}
 	}
 }
 
-void AvgPoolLayer :: unpool( const MDSpanRO & inMS, size_t sampleIndex, size_t filterIndex,
-		size_t beginX, size_t beginY, const DataType maxValue, DataType outDelta, MDSpanRW * inDeltaMS ) const
+void AvgPoolLayer :: unpool( const MDSpanRO & inRO, size_t sampleIndex, size_t filterIndex,
+		size_t beginX, size_t beginY, const DataType maxValue, DataType outDelta, MDSpanRW * inDeltaRW ) const
 {
 	for( size_t x = 0; x < mPoolSize; x++ ) {
 		for( size_t y = 0; y < mPoolSize; y++ ) {
-			( *inDeltaMS )( sampleIndex, filterIndex, beginX + x, beginY + y ) = outDelta / ( mPoolSize * mPoolSize );
+			( *inDeltaRW )( sampleIndex, filterIndex, beginX + x, beginY + y ) = outDelta / ( mPoolSize * mPoolSize );
 		}
 	}
 }
@@ -978,11 +958,11 @@ void DropoutLayer :: calcOutput( BaseLayerContext * ctx ) const
 
 	assert( NULL != ctxImpl );
 
-	const DataVector & input = ctx->getInMD().first;
-	DataVector & output = ctx->getOutMD().first;
+	const DataVector & input = ctx->getInput().first;
+	DataVector & output = ctx->getOutput().first;
 
-	ctx->getOutMD().second = ctx->getInMD().second;
-	ctx->getOutMD().first.resize( input.size() );
+	ctx->getOutput().second = ctx->getInput().second;
+	ctx->getOutput().first.resize( input.size() );
 
 	BoolVector & mask = ctxImpl->getMask();
 	mask.resize( input.size() );
@@ -1002,26 +982,26 @@ void DropoutLayer :: calcOutput( BaseLayerContext * ctx ) const
 	}
 
 	if( gx_is_inner_debug ) {
-		Utils::printMDVector( "dropout.input", ctx->getInMD() );
-		Utils::printMDVector( "dropout.output", ctx->getOutMD() );
+		Utils::printMDVector( "dropout.input", ctx->getInput() );
+		Utils::printMDVector( "dropout.output", ctx->getOutput() );
 	}
 }
 
-void DropoutLayer :: backpropagate( BaseLayerContext * ctx, DataVector * inDelta ) const
+void DropoutLayer :: backpropagate( BaseLayerContext * ctx, MDVector * inDelta ) const
 {
 	DropoutLayerContext * ctxImpl = dynamic_cast< DropoutLayerContext * >( ctx );
 
 	assert( NULL != ctxImpl );
 
-	const DataVector & delta = ctx->getDeltaMD().first;
+	const DataVector & delta = ctx->getDelta().first;
 	BoolVector & mask = ctxImpl->getMask();
 
 	for( size_t i = 0; i < delta.size(); i++ )
-			( *inDelta )[ i ] = mask[ i ] ? 0 : delta[ i ];
+			inDelta->first[ i ] = mask[ i ] ? 0 : delta[ i ];
 
 	if( gx_is_inner_debug ) {
-		Utils::printMDVector( "dropout.outDelta", ctx->getDeltaMD() );
-		Utils::printVector( "dropout.inDelta", *inDelta );
+		Utils::printMDVector( "dropout.outDelta", ctx->getDelta() );
+		Utils::printMDVector( "dropout.inDelta", *inDelta );
 	}
 }
 

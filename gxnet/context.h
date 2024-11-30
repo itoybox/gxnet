@@ -19,18 +19,18 @@ public:
 
 	virtual ~BackwardContext();
 
-	MDVector & getDeltaMD();
+	MDVector & getDelta();
 
-	const MDVector & getDeltaMD() const;
+	const MDVector & getDelta() const;
 
-	DataMatrix & getGradients();
+	MDVector & getGradients();
 
-	const DataMatrix & getGradients() const;
+	const MDVector & getGradients() const;
 
 protected:
-	DataMatrix mGradients;
+	MDVector mGradients;
 
-	MDVector mDeltaMD;
+	MDVector mDelta;
 };
 
 class BaseLayerContext : public BackwardContext {
@@ -39,16 +39,16 @@ public:
 
 	virtual ~BaseLayerContext();
 
-	void setInMD( const MDVector * inMD );
+	void setInput( const MDVector * input );
 
-	const MDVector & getInMD();
+	const MDVector & getInput();
 
-	MDVector & getOutMD();
+	MDVector & getOutput();
 
 protected:
-	const MDVector * mInMD;
+	const MDVector * mInput;
 
-	MDVector mOutMD;
+	MDVector mOutput;
 };
 
 class FullConnLayerContext : public BaseLayerContext {
@@ -57,12 +57,10 @@ public:
 
 	virtual ~FullConnLayerContext();
 
-	DataVector & getTempWeights();
-
 	DataVector & getTempGradients();
 
 protected:
-	DataVector mTempWeights, mTempGradients;
+	DataVector mTempGradients;
 };
 
 class ConvLayerContext : public BaseLayerContext {
@@ -70,10 +68,10 @@ public:
 	ConvLayerContext();
 	~ConvLayerContext();
 
-	MDVector & getPaddingDeltaMD();
+	MDVector & getPaddingDelta();
 
 private:
-	MDVector mPaddingDeltaMD;
+	MDVector mPaddingDelta;
 };
 
 class ConvExLayerContext : public ConvLayerContext {
@@ -81,17 +79,17 @@ public:
 	ConvExLayerContext();
 	~ConvExLayerContext();
 
-	DataMatrix & getRows4collectGradients();
+	MDVector & getRows4collectGradients();
 
-	DataMatrix & getRows4calcOutput();
+	MDVector & getRows4calcOutput();
 
-	DataMatrix & getRows4backpropagate();
+	MDVector & getRows4backpropagate();
 
-	DataMatrix & getRowsOfDelta();
+	DataVector & getTempGradients();
 
 private:
-	DataMatrix mRows4collectGradient, mRows4calcOutput,
-			mRows4backpropagate, mRowsOfDelta;
+	MDVector mRows4calcOutput, mRows4backpropagate, mRows4collectGradient;
+	DataVector mTempGradients;
 };
 
 class DropoutLayerContext : public BaseLayerContext {

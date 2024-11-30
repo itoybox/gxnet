@@ -11,22 +11,22 @@ BackwardContext :: ~BackwardContext()
 {
 }
 
-MDVector & BackwardContext :: getDeltaMD()
+MDVector & BackwardContext :: getDelta()
 {
-	return mDeltaMD;
+	return mDelta;
 }
 
-const MDVector & BackwardContext :: getDeltaMD() const
+const MDVector & BackwardContext :: getDelta() const
 {
-	return mDeltaMD;
+	return mDelta;
 }
 
-DataMatrix & BackwardContext :: getGradients()
+MDVector & BackwardContext :: getGradients()
 {
 	return mGradients;
 }
 
-const DataMatrix & BackwardContext :: getGradients() const
+const MDVector & BackwardContext :: getGradients() const
 {
 	return mGradients;
 }
@@ -35,26 +35,26 @@ const DataMatrix & BackwardContext :: getGradients() const
 
 BaseLayerContext :: BaseLayerContext()
 {
-	mInMD = NULL;
+	mInput = NULL;
 }
 
 BaseLayerContext :: ~BaseLayerContext()
 {
 }
 
-void BaseLayerContext :: setInMD( const MDVector * inMD )
+void BaseLayerContext :: setInput( const MDVector * input )
 {
-	mInMD = inMD;
+	mInput = input;
 }
 
-const MDVector & BaseLayerContext :: getInMD()
+const MDVector & BaseLayerContext :: getInput()
 {
-	return * mInMD;
+	return * mInput;
 }
 
-MDVector & BaseLayerContext :: getOutMD()
+MDVector & BaseLayerContext :: getOutput()
 {
-	return mOutMD;
+	return mOutput;
 }
 
 ////////////////////////////////////////////////////////////
@@ -65,11 +65,6 @@ FullConnLayerContext :: FullConnLayerContext()
 
 FullConnLayerContext :: ~FullConnLayerContext()
 {
-}
-
-DataVector & FullConnLayerContext :: getTempWeights()
-{
-	return mTempWeights;
 }
 
 DataVector & FullConnLayerContext :: getTempGradients()
@@ -87,9 +82,9 @@ ConvLayerContext :: ~ConvLayerContext()
 {
 }
 
-MDVector & ConvLayerContext :: getPaddingDeltaMD()
+MDVector & ConvLayerContext :: getPaddingDelta()
 {
-	return mPaddingDeltaMD;
+	return mPaddingDelta;
 }
 
 ////////////////////////////////////////////////////////////
@@ -102,24 +97,24 @@ ConvExLayerContext :: ~ConvExLayerContext()
 {
 }
 
-DataMatrix & ConvExLayerContext :: getRows4collectGradients()
+MDVector & ConvExLayerContext :: getRows4collectGradients()
 {
 	return mRows4collectGradient;
 }
 
-DataMatrix & ConvExLayerContext :: getRows4calcOutput()
+MDVector & ConvExLayerContext :: getRows4calcOutput()
 {
 	return mRows4calcOutput;
 }
 
-DataMatrix & ConvExLayerContext :: getRows4backpropagate()
+MDVector & ConvExLayerContext :: getRows4backpropagate()
 {
 	return mRows4backpropagate;
 }
 
-DataMatrix & ConvExLayerContext :: getRowsOfDelta()
+DataVector & ConvExLayerContext :: getTempGradients()
 {
-	return mRowsOfDelta;
+	return mTempGradients;
 }
 
 ////////////////////////////////////////////////////////////
@@ -136,7 +131,6 @@ BoolVector & DropoutLayerContext :: getMask()
 {
 	return mMask;
 }
-
 
 }; // namespace gxnet;
 

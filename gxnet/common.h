@@ -16,6 +16,7 @@
 namespace gxnet {
 
 typedef double DataType;
+//typedef float DataType;
 
 extern bool gx_is_inner_debug;
 const DataType gx_debug_weight = 0.1;
@@ -33,9 +34,21 @@ typedef std::pair< DataVector, Dims > MDVector;
 typedef std::vector< bool > BoolVector;
 typedef std::vector< int > IntVector;
 
+class MDSpanRO;
+
 DataType gx_inner_product( const DataType * a, const DataType * b, size_t count );
 
 void gx_vs_product( const DataType * a, const DataType & b, DataType * c, size_t count );
+
+void gx_kronecker_product( const DataType * a, size_t aCount,
+		const DataType * b, size_t bCount, DataType * c, size_t count );
+
+void gx_rows_product( const MDSpanRO & a, const MDSpanRO & b,
+		const DataVector & biases, bool isABiases, DataType * c, size_t count );
+
+void gx_rows_product( const MDSpanRO & a, const MDSpanRO & b, DataType * c, size_t count );
+
+void gx_matmul( const MDSpanRO & a, const MDSpanRO & b, MDVector * c );
 
 inline void gx_matrix_add( DataMatrix * dest, const DataMatrix & src )
 {
@@ -148,6 +161,8 @@ public:
 	}
 
 	~MDSpanRO() {}
+
+	const DataType * data() const { return mData; };
 
 	const Dims & dims() const { return mDims; }
 

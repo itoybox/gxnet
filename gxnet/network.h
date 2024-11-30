@@ -46,9 +46,9 @@ public:
 	BaseLayerContextPtrVector & getLayerCtx();
 
 	// mini batch workspace
-	MDVector & getInputMD();
+	MDVector & getInput();
 
-	MDVector & getTargetMD();
+	MDVector & getTarget();
 
 	// mini batch backward context
 	BackwardContext * getBatchBwdCtx( size_t index );
@@ -66,7 +66,7 @@ private:
 	TrainingData mTrainingData;
 	ChunkInfo mChunkInfo;
 
-	MDVector mInputMD, mTargetMD;
+	MDVector mInput, mTarget;
 };
 
 class Network {
