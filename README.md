@@ -75,5 +75,9 @@ sh launch_mnist.sh
 
    EMNIST 数据集的数据太杂乱，gxnet 这个玩具级的框架缺乏很多功能，无法处理这么杂乱的数据。因此找到了 [handwritten-alphabets dataset](https://www.kaggle.com/datasets/sachinpatel21/az-handwritten-alphabets-in-csv-format/data) 数据集，这个数据集干净很多；写了两个脚本对原始数据集进行处理，转换成常见的 MNIST train/test 格式。
 
+## 优化训练耗时（3）
+
+针对手写字母的识别（testemnist），之前优化到 50 秒左右，其实是搞错了，跑 50 秒那次有一个卷积层没有用优化之后的 ConvEx 层；如果都使用 ConvEx 层，可以到 30 秒左右的。想进一步优化训练耗时，就考虑使用 [eigen](https://eigen.tuxfamily.org/) 库，因此就把原来代码中使用 DataMatrix 的变量都替换为 MDVector，以此来适应常见的矩阵库接口。eigen 库非常易用，是一个 header-only 的库；接口设计上也非常方便，几乎可以做到针对任何矩阵处理代码无缝替换。替换之后，在本地开发机上使用 eigen 相比之前快 10~15% 。项目在这里打了一个 [v0.3](/../../../gxnet/releases/tag/v0.3) 的tag。
+
 [to be continued]
 
